@@ -21,6 +21,9 @@ export interface UpcomingItem {
   contentId: number | null;
   /** Room/location for a calendar event, when Canvas has one on file. */
   location: string | null;
+  /** Submission score, when Canvas's planner response includes one. null for events and
+   * ungraded/unscored deadlines. */
+  score: number | null;
 }
 
 export const DEFAULT_UPCOMING_DAYS = 14;
@@ -64,6 +67,14 @@ function submittedFromPlanner(item: PlannerItem): boolean | null {
   return null;
 }
 
+function scoreFromPlanner(item: PlannerItem): number | null {
+  const subs = item.submissions;
+  if (subs && typeof subs === "object") {
+    return subs.score ?? null;
+  }
+  return null;
+}
+
 function plannerItemToUpcoming(item: PlannerItem, byId: Map<number, CourseInfo>): UpcomingItem {
   const course = item.course_id != null ? byId.get(item.course_id) ?? null : null;
   return {
@@ -80,6 +91,7 @@ function plannerItemToUpcoming(item: PlannerItem, byId: Map<number, CourseInfo>)
     endDate: item.plannable.end_at ?? null,
     contentId: item.plannable_id,
     location: item.plannable.location_name ?? null,
+    score: scoreFromPlanner(item),
   };
 }
 
@@ -104,6 +116,7 @@ function calendarEventToUpcoming(event: CalendarEvent, byId: Map<number, CourseI
     endDate: event.end_at ?? null,
     contentId: event.id,
     location: event.location_name ?? null,
+    score: null,
   };
 }
 
@@ -117,17 +130,23 @@ function calendarEventToUpcoming(event: CalendarEvent, byId: Map<number, CourseI
  * planner's copy (kept first) wins — which is why `plannerItemToUpcoming`
  * also reads `plannable.end_at`, so the lecture's end time isn't lost when
  * the calendar_events duplicate gets deduped away. Sorted by date ascending.
+ *
+ * `startOffsetDays` shifts the window's start relative to now (default 0 —
+ * identical to the original "from now" behaviour); a negative value reaches
+ * into the past, e.g. -7 to also pick up anything from the last week. The
+ * window's end is always `now + days`, unaffected by the offset.
  */
 export async function getUpcoming(
   client: CanvasClient,
   courses: CourseInfo[],
   days: number = DEFAULT_UPCOMING_DAYS,
+  startOffsetDays: number = 0,
 ): Promise<UpcomingItem[]> {
   if (courses.length === 0) return [];
 
   const byId = courseLookup(courses);
   const now = new Date();
-  const startDate = now.toISOString();
+  const startDate = new Date(now.getTime() + startOffsetDays * 24 * 60 * 60 * 1000).toISOString();
   const endDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
 
   const seen = new Set<string>();

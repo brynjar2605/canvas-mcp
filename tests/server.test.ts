@@ -11,6 +11,7 @@ const EXPECTED_TOOL_NAMES = [
   "list_assignments",
   "get_assignment",
   "get_upcoming",
+  "export_timeline",
   "list_announcements",
   "get_grades",
   "get_page",
@@ -37,7 +38,7 @@ function fakeCtx() {
 }
 
 describe("allTools registry", () => {
-  it("lists exactly the 14 planned tools, each with a description and a zod shape", () => {
+  it("lists exactly the 15 planned tools, each with a description and a zod shape", () => {
     expect(allTools.map((t) => t.name).sort()).toEqual([...EXPECTED_TOOL_NAMES].sort());
     for (const t of allTools) {
       expect(t.description.length).toBeGreaterThan(0);
@@ -64,7 +65,7 @@ describe("createServer over an in-memory MCP transport", () => {
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   });
 
-  it("exposes all 14 tools via tools/list", async () => {
+  it("exposes all 15 tools via tools/list", async () => {
     const result = await client.listTools();
     const names = result.tools.map((t) => t.name).sort();
     expect(names).toEqual([...EXPECTED_TOOL_NAMES].sort());

@@ -62,6 +62,7 @@ tests/
 | `list_assignments` | `{ course?: slug\|id, filter?: "upcoming"\|"past"\|"missing"\|"graded"\|"all", days?: n }` | compact list, due date, points, submitted?, score |
 | `get_assignment` | `{ course, assignment_id }` | full description as markdown, rubric, attachments, submission state |
 | `get_upcoming` | `{ days?: 14 }` | merged timeline: assignments, quizzes, events, announcements — grouped by day |
+| `export_timeline` | `{ days?: 21, start_offset_days?: 0, course?, include_events?: true }` | structured JSON rows (deadline/lecture/lab/exam) with a stable `key`, for external calendar/Notion sync |
 | `list_announcements` | `{ course?, days?: 30 }` | title, date, body markdown |
 | `get_grades` | `{}` | per course current score / grade |
 | `list_modules` | `{ course }` | modules with items (type, title, file id / page url) |

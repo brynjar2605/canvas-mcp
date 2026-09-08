@@ -144,7 +144,9 @@ export interface PlannerItem {
   plannable: PlannableDetails;
   html_url?: string;
   /** `false` for non-submittable plannables (events, announcements, pages); an object otherwise. */
-  submissions?: false | { submitted?: boolean; graded?: boolean; missing?: boolean; late?: boolean };
+  submissions?:
+    | false
+    | { submitted?: boolean; graded?: boolean; missing?: boolean; late?: boolean; score?: number | null };
 }
 
 export interface CalendarEvent {

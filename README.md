@@ -110,6 +110,7 @@ claude mcp add canvas -- node /absolute/path/to/canvas-mcp/dist/index.js
 | `list_assignments` | Assignments for one course (or all current courses): due date, points, submitted/graded state, score, and the id `get_assignment` needs. Filterable by upcoming / past / missing / graded / all. No lectures or calendar events — use `get_upcoming` for those. |
 | `get_assignment` | Full assignment detail: description as markdown, rubric, attachments (with file ids), submission state. |
 | `get_upcoming` | Timeline for the next N days across all current courses (or one, via `course`): deadlines first each day, then a compact lectures/dæmatímar line per event. Not a substitute for `list_assignments` when you need scores or full descriptions. |
+| `export_timeline` | Structured JSON export of the timeline (deadlines, lectures, labs) with a stable `key` per row, for syncing into external calendars/Notion. Supports a past-inclusive window via `start_offset_days`. |
 | `list_announcements` | Recent course announcements as markdown, newest first; bodies trimmed to 600 chars by default (`full: true` for the rest). |
 | `get_grades` | Your computed grade per course (RU hides Canvas's own course totals from students) — for one course or all current ones. |
 | `get_page` | A single Canvas page's body, converted to markdown. Needs the page's `page_url` slug from `search_materials` or `list_modules` — not its title. |

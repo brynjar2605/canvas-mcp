@@ -8,6 +8,7 @@ import { tool as listCourses } from "./list_courses.js";
 import { tool as listAssignments } from "./list_assignments.js";
 import { tool as getAssignment } from "./get_assignment.js";
 import { tool as getUpcoming } from "./get_upcoming.js";
+import { tool as exportTimeline } from "./export_timeline.js";
 import { tool as listAnnouncements } from "./list_announcements.js";
 import { tool as getGrades } from "./get_grades.js";
 import { tool as getPage } from "./get_page.js";
@@ -24,6 +25,7 @@ export const allTools: ToolDef[] = [
   listAssignments,
   getAssignment,
   getUpcoming,
+  exportTimeline,
   listAnnouncements,
   getGrades,
   getPage,
