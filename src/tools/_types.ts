@@ -15,7 +15,10 @@ export interface ToolContext {
  * Throw a plain Error with a helpful message for user-facing failures; index.ts converts it to an
  * MCP error result.
  */
-export interface ToolDef<S extends z.ZodRawShape = z.ZodRawShape> {
+// Default generic is `any` on purpose: `ToolDef[]` must be able to hold tools whose handlers take
+// required input fields (function params are contravariant, so ToolDef<ZodRawShape> would reject them).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface ToolDef<S extends z.ZodRawShape = any> {
   name: string;
   description: string;
   inputSchema: S;
