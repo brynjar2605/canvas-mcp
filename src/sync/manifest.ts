@@ -22,6 +22,15 @@ export interface Manifest {
   courseId: number;
   slug: string;
   lastSyncAt: string | null;
+  /**
+   * "discovered" when the most recent sync found the course's Files tab
+   * hidden and had to reconstruct the file list from modules/pages instead
+   * of listing it directly — see `listAllFilesWithMeta`. Absent until a sync
+   * has run.
+   */
+  lastFilesSource?: "listing" | "discovered";
+  /** Discovered file ids skipped as individually inaccessible on the most recent sync. */
+  lastDiscoveredSkipped?: number;
   /** keyed by fileId (as string) */
   files: Record<string, ManifestEntry>;
   /** keyed by Canvas page url */
@@ -77,6 +86,12 @@ export function loadManifest(canvasDir: string, courseId: number, slug: string):
           courseId: typeof parsed.courseId === "number" ? parsed.courseId : courseId,
           slug: typeof parsed.slug === "string" ? parsed.slug : slug,
           lastSyncAt: typeof parsed.lastSyncAt === "string" ? parsed.lastSyncAt : null,
+          lastFilesSource:
+            parsed.lastFilesSource === "listing" || parsed.lastFilesSource === "discovered"
+              ? parsed.lastFilesSource
+              : undefined,
+          lastDiscoveredSkipped:
+            typeof parsed.lastDiscoveredSkipped === "number" ? parsed.lastDiscoveredSkipped : undefined,
           files: parsed.files as Manifest["files"],
           pages: parsed.pages as Manifest["pages"],
         };

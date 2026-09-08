@@ -4,15 +4,10 @@ import { currentCourses } from "../canvas/courses.js";
 import {
   DEFAULT_UPCOMING_DAYS,
   formatReykjavikDay,
-  formatReykjavikDateTime,
+  formatReykjavikTimeRange,
   getUpcoming,
   type UpcomingItem,
 } from "../canvas/calendar.js";
-
-function formatTime(iso: string): string {
-  // formatReykjavikDateTime -> "Mon 14 Sep 23:59"; take the trailing HH:MM.
-  return formatReykjavikDateTime(iso).split(" ").pop()!;
-}
 
 function formatItem(item: UpcomingItem): string {
   const course = item.courseSlug ? `[${item.courseSlug}] ` : "";
@@ -21,7 +16,8 @@ function formatItem(item: UpcomingItem): string {
   if (item.submitted === true) status = " — submitted ✓";
   else if (item.submitted === false) status = " — not submitted";
   const link = item.htmlUrl ? ` (${item.htmlUrl})` : "";
-  return `- ${formatTime(item.date)} ${course}${item.type}: ${item.title}${points}${status}${link}`;
+  const time = formatReykjavikTimeRange(item.date, item.endDate);
+  return `- ${time} ${course}${item.type}: ${item.title}${points}${status}${link}`;
 }
 
 export const tool = defineTool({

@@ -18,6 +18,8 @@ export interface AssignmentSummary {
   missing: boolean;
   late: boolean;
   htmlUrl: string;
+  /** Raw Canvas submission_types, e.g. ["online_upload"] or ["none"] / ["on_paper"] for in-class work. */
+  submissionTypes?: string[];
 }
 
 export interface RubricItem {
@@ -43,10 +45,18 @@ export interface AssignmentDetail extends AssignmentSummary {
 const ASSIGNMENTS_TTL_MS = 10 * 60 * 1000;
 export const DEFAULT_UPCOMING_DAYS = 30;
 
+const SUBMITTED_WORKFLOW_STATES = new Set(["submitted", "graded", "pending_review"]);
+
+/**
+ * "Submitted" is derived from `workflow_state` (or a non-null score), NEVER
+ * from `submitted_at`. Confirmed live: RU's `on_paper`/`none` submission_types
+ * assignments carry `workflow_state: "graded"` with `submitted_at: null` once
+ * the teacher enters a grade — the student never submits anything online.
+ */
 function isSubmitted(a: Assignment): boolean {
   const state = a.submission?.workflow_state;
-  if (state) return state !== "unsubmitted";
-  return Boolean(a.submission?.submitted_at);
+  if (state && SUBMITTED_WORKFLOW_STATES.has(state)) return true;
+  return a.submission?.score != null;
 }
 
 function isMissing(a: Assignment, now: Date): boolean {
@@ -69,6 +79,7 @@ function toSummary(a: Assignment, course: CourseInfo, now: Date): AssignmentSumm
     missing: isMissing(a, now),
     late: a.submission?.late ?? false,
     htmlUrl: a.html_url,
+    submissionTypes: a.submission_types ?? [],
   };
 }
 

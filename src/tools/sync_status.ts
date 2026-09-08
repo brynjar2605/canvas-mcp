@@ -46,6 +46,12 @@ export const tool = defineTool({
       lines.push(
         `${course.slug}: last sync ${manifest.lastSyncAt ?? "never"}; ${fileCount} file(s), ${pageCount} page(s) tracked; manifest ${manifestSize} bytes; folder present at ${dir}`
       );
+      if (manifest.lastFilesSource === "discovered") {
+        lines.push(
+          `  ℹ Files tab is hidden for this course — file list is discovered via modules/pages (may be incomplete)` +
+            (manifest.lastDiscoveredSkipped ? `; ${manifest.lastDiscoveredSkipped} discovered link(s) skipped as inaccessible` : ""),
+        );
+      }
     }
     return lines.join("\n");
   },

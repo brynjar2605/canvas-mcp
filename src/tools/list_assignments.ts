@@ -6,6 +6,12 @@ import { formatReykjavikDateTime } from "../canvas/calendar.js";
 
 const FILTERS = ["upcoming", "past", "missing", "graded", "all"] as const;
 
+/** RU regularly grades "none"/"on_paper" assignments (in-class work, no online submission) with a score. */
+function isInClassOnly(submissionTypes: string[] | undefined): boolean {
+  if (!submissionTypes || submissionTypes.length === 0) return false;
+  return submissionTypes.every((t) => t === "none" || t === "on_paper");
+}
+
 function formatAssignmentLine(a: AssignmentSummary): string {
   const due = a.dueAt ? `due ${formatReykjavikDateTime(a.dueAt)}` : "no due date";
   const points = a.pointsPossible !== null ? `${a.pointsPossible} pts` : "no points";
@@ -14,7 +20,9 @@ function formatAssignmentLine(a: AssignmentSummary): string {
   if (a.missing) {
     status = "MISSING";
   } else if (a.score !== null) {
-    status = `score ${a.score}${a.pointsPossible !== null ? `/${a.pointsPossible}` : ""}${a.grade ? ` (${a.grade})` : ""}`;
+    const scoreText = `score ${a.score}${a.pointsPossible !== null ? `/${a.pointsPossible}` : ""}${a.grade ? ` (${a.grade})` : ""}`;
+    // "submitted ✓" would misleadingly imply an online submission — this was graded in class instead.
+    status = isInClassOnly(a.submissionTypes) ? `${scoreText} (graded in class)` : scoreText;
   } else if (a.submitted) {
     status = "submitted ✓";
   } else {

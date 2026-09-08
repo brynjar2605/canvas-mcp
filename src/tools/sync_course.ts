@@ -7,6 +7,14 @@ import { defineTool } from "./_types.js";
 export function formatSyncReport(r: SyncReport): string {
   const summary = `${r.slug}${r.dryRun ? " (dry run)" : ""}: +${r.added.length} added, ~${r.updated.length} updated, ${r.skipped} skipped, ${r.failed.length} failed, ${r.removedOnCanvas.length} removed-on-canvas`;
   const lines = [summary];
+  if (r.source === "discovered") {
+    const fileCount = r.added.length + r.updated.length + r.skipped;
+    lines.push(
+      `  ℹ Files tab is hidden for this course — synced ${fileCount} file(s) discovered via modules/pages` +
+        (r.discoveredSkipped ? ` (${r.discoveredSkipped} discovered link(s) skipped as inaccessible)` : "") +
+        ` (may be incomplete)`,
+    );
+  }
   for (const p of r.added) lines.push(`  + ${p}`);
   for (const p of r.updated) lines.push(`  ~ ${p}`);
   for (const f of r.failed) lines.push(`  ! ${f.path}: ${f.error}`);

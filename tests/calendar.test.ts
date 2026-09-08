@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { CanvasClient, type FetchImpl } from "../src/canvas/client.js";
-import { formatReykjavikDateTime, formatReykjavikDay, getUpcoming } from "../src/canvas/calendar.js";
+import { formatReykjavikDateTime, formatReykjavikDay, formatReykjavikTimeRange, getUpcoming } from "../src/canvas/calendar.js";
 import type { CourseInfo } from "../src/canvas/courses.js";
 
 const courses: CourseInfo[] = [
@@ -27,6 +27,17 @@ describe("formatReykjavikDateTime / formatReykjavikDay", () => {
   });
 });
 
+describe("formatReykjavikTimeRange", () => {
+  it("renders start–end when an end time is known", () => {
+    expect(formatReykjavikTimeRange("2026-09-14T08:30:00Z", "2026-09-14T10:10:00Z")).toBe("08:30–10:10");
+  });
+
+  it("renders just the start time when there is no end", () => {
+    expect(formatReykjavikTimeRange("2026-09-14T08:30:00Z", null)).toBe("08:30");
+    expect(formatReykjavikTimeRange("2026-09-14T08:30:00Z")).toBe("08:30");
+  });
+});
+
 describe("getUpcoming", () => {
   it("merges planner items + calendar events, dedupes (type,id), and sorts by date", async () => {
     const plannerItems = [
@@ -44,7 +55,7 @@ describe("getUpcoming", () => {
         plannable_id: 55,
         plannable_date: "2026-09-10T10:00:00Z",
         course_id: 2,
-        plannable: { title: "Lecture 1" },
+        plannable: { title: "Lecture 1", start_at: "2026-09-10T10:00:00Z", end_at: "2026-09-10T11:40:00Z" },
         html_url: "https://x.test/event/55",
         submissions: false,
       },
@@ -81,6 +92,8 @@ describe("getUpcoming", () => {
 
     const lecture = items.find((i) => i.title === "Lecture 1")!;
     expect(lecture).toMatchObject({ type: "event", courseSlug: "tsam", courseId: 2, points: null, submitted: null });
+    // The planner's own copy (with end_at) wins over the calendar_events duplicate that gets deduped away.
+    expect(lecture.endDate).toBe("2026-09-10T11:40:00Z");
   });
 
   it("sends start_date/end_date and context_codes[] for the given courses", async () => {

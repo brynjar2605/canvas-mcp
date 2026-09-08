@@ -16,7 +16,7 @@ export interface Grades {
 
 export interface Enrollment {
   course_id: number;
-  type: string; // "student", "teacher", "ta", "observer", "designer"
+  type: string; // "StudentEnrollment" | "TeacherEnrollment" | "TaEnrollment" | "ObserverEnrollment" | "DesignerEnrollment"
   enrollment_state?: string;
   grades?: Grades;
 }
@@ -81,6 +81,8 @@ export interface CanvasFile {
   modified_at?: string;
   locked?: boolean;
   hidden?: boolean;
+  /** True when the file exists but Canvas is currently withholding it from this user (e.g. unlock date not reached). */
+  locked_for_user?: boolean;
 }
 
 export interface Folder {
@@ -101,6 +103,11 @@ export interface ModuleItem {
   url?: string;
   page_url?: string;
   external_url?: string;
+  /** Present when the module list was fetched with `include[]=content_details`. */
+  content_details?: {
+    display_name?: string;
+    locked_for_user?: boolean;
+  };
 }
 
 export interface Module {
@@ -122,6 +129,9 @@ export interface PlannableDetails {
   title?: string;
   due_at?: string | null;
   points_possible?: number | null;
+  /** Present when `plannable_type` is "calendar_event" — the event's own start/end. */
+  start_at?: string | null;
+  end_at?: string | null;
 }
 
 export interface PlannerItem {
@@ -131,6 +141,8 @@ export interface PlannerItem {
   course_id?: number | null;
   plannable: PlannableDetails;
   html_url?: string;
+  /** `false` for non-submittable plannables (events, announcements, pages); an object otherwise. */
+  submissions?: false | { submitted?: boolean; graded?: boolean; missing?: boolean; late?: boolean };
 }
 
 export interface CalendarEvent {

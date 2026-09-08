@@ -14,19 +14,11 @@ export interface UpcomingItem {
   points: number | null;
   submitted: boolean | null;
   htmlUrl: string | null;
+  /** ISO datetime, e.g. for lectures/labs with a known end time. null/absent when Canvas gave none. */
+  endDate?: string | null;
 }
 
 export const DEFAULT_UPCOMING_DAYS = 14;
-
-/**
- * Canvas's planner API includes a `submissions` field the shared `PlannerItem`
- * type (src/canvas/types.ts) does not declare — it's either an object with a
- * `submitted` flag, or literal `false` for non-submittable plannables. Widened
- * locally rather than editing the shared type.
- */
-interface PlannerItemWithSubmissions extends PlannerItem {
-  submissions?: { submitted?: boolean } | false;
-}
 
 const CONTEXT_CODES_CHUNK_SIZE = 10;
 
@@ -59,15 +51,15 @@ function plannerTypeToUpcomingType(plannableType: string): UpcomingItemType {
   }
 }
 
-function submittedFromPlanner(item: PlannerItemWithSubmissions): boolean | null {
+function submittedFromPlanner(item: PlannerItem): boolean | null {
   const subs = item.submissions;
-  if (subs && typeof subs === "object" && "submitted" in subs) {
+  if (subs && typeof subs === "object") {
     return Boolean(subs.submitted);
   }
   return null;
 }
 
-function plannerItemToUpcoming(item: PlannerItemWithSubmissions, byId: Map<number, CourseInfo>): UpcomingItem {
+function plannerItemToUpcoming(item: PlannerItem, byId: Map<number, CourseInfo>): UpcomingItem {
   const course = item.course_id != null ? byId.get(item.course_id) ?? null : null;
   return {
     date: item.plannable_date,
@@ -78,6 +70,9 @@ function plannerItemToUpcoming(item: PlannerItemWithSubmissions, byId: Map<numbe
     points: item.plannable.points_possible ?? null,
     submitted: submittedFromPlanner(item),
     htmlUrl: item.html_url ?? null,
+    // Present when plannable_type is "calendar_event" — Canvas nests the full
+    // event (including end_at) under `plannable` for those planner items.
+    endDate: item.plannable.end_at ?? null,
   };
 }
 
@@ -99,14 +94,20 @@ function calendarEventToUpcoming(event: CalendarEvent, byId: Map<number, CourseI
     points: null,
     submitted: null,
     htmlUrl: event.html_url ?? null,
+    endDate: event.end_at ?? null,
   };
 }
 
 /**
  * Merged upcoming timeline for the given courses: planner items (assignments,
- * quizzes, discussions, announcements, wiki pages, calendar events already
- * known to the planner) plus the calendar_events endpoint (lectures/labs not
- * otherwise plannable), deduped by (type, id) and sorted by date ascending.
+ * quizzes, discussions, announcements, and — confirmed live — lecture/dæmatími
+ * `calendar_event` plannables too) plus the calendar_events endpoint (a
+ * redundant source now that the planner covers events). Deduped by (type, id):
+ * a `calendar_event` planner item's `plannable_id` is the same numeric id as
+ * the underlying CalendarEvent, so both sides key as `event:<id>` and the
+ * planner's copy (kept first) wins — which is why `plannerItemToUpcoming`
+ * also reads `plannable.end_at`, so the lecture's end time isn't lost when
+ * the calendar_events duplicate gets deduped away. Sorted by date ascending.
  */
 export async function getUpcoming(
   client: CanvasClient,
@@ -126,7 +127,7 @@ export async function getUpcoming(
   for (const group of chunk(courses, CONTEXT_CODES_CHUNK_SIZE)) {
     const contextCodes = group.map((c) => `course_${c.id}`);
 
-    const plannerItems = await client.getAll<PlannerItemWithSubmissions>("/api/v1/planner/items", {
+    const plannerItems = await client.getAll<PlannerItem>("/api/v1/planner/items", {
       start_date: startDate,
       end_date: endDate,
       context_codes: contextCodes,
@@ -180,4 +181,20 @@ export function formatReykjavikDateTime(iso: string): string {
 export function formatReykjavikDay(iso: string): string {
   const d = new Date(iso);
   return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
+function timeOnly(iso: string): string {
+  const d = new Date(iso);
+  return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+}
+
+/**
+ * Formats a start (and, when known, end) time as "08:30" or "08:30–10:10" —
+ * used so lectures/dæmatímar render their full time range, e.g.
+ * "V104 - Þýðendur - Fyrirlestrar 08:30–10:10".
+ */
+export function formatReykjavikTimeRange(startIso: string, endIso?: string | null): string {
+  const start = timeOnly(startIso);
+  if (!endIso) return start;
+  return `${start}–${timeOnly(endIso)}`;
 }

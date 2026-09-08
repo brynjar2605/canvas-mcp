@@ -107,6 +107,23 @@ describe("listAssignments filters", () => {
     expect(result.map((a) => a.id)).toEqual([5]);
   });
 
+  it("on-paper/none assignments are submitted (and not missing) once graded, even with submitted_at null", async () => {
+    const onPaper = [
+      {
+        id: 8,
+        name: "In-class quiz",
+        due_at: "2026-09-01T00:00:00Z",
+        points_possible: 2,
+        html_url: "https://x.test/8",
+        submission_types: ["on_paper"],
+        submission: { workflow_state: "graded", score: 2, submitted_at: null },
+      },
+    ];
+    const result = await listAssignments(clientReturning(onPaper), course, "all");
+    expect(result[0]!.submitted).toBe(true);
+    expect(result[0]!.missing).toBe(false);
+  });
+
   it("does not mark a future assignment as missing even with no submission", async () => {
     const future = [
       { id: 7, name: "Future, no submission yet", due_at: "2026-12-01T00:00:00Z", points_possible: 10, html_url: "https://x.test/7" },

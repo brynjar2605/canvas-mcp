@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { z } from "zod";
 import type { FileEntry } from "../canvas/files.js";
-import { listAllFiles } from "../canvas/files.js";
+import { listAllFilesWithMeta } from "../canvas/files.js";
 import type { ModuleInfo, ModuleItemInfo } from "../canvas/modules.js";
 import { listModules } from "../canvas/modules.js";
 import type { PageSummary } from "../canvas/pages.js";
@@ -96,16 +96,24 @@ function formatHit(ctx: ToolContext, candidate: MaterialCandidate): string {
   return `- ${coursePrefix} 📃 page: ${p.title} (page_url: ${p.url})`;
 }
 
-async function gatherCandidates(ctx: ToolContext, course: CourseInfo): Promise<MaterialCandidate[]> {
-  const [files, modules, pages] = await Promise.all([
-    listAllFiles(ctx.client, course.id).catch(() => [] as FileEntry[]),
+interface CourseCandidates {
+  candidates: MaterialCandidate[];
+  /** "discovered" when this course hides its Files tab and the file list was reconstructed. */
+  filesSource: "listing" | "discovered";
+}
+
+async function gatherCandidates(ctx: ToolContext, course: CourseInfo): Promise<CourseCandidates> {
+  const [filesResult, modules, pages] = await Promise.all([
+    listAllFilesWithMeta(ctx.client, course.id).catch(
+      () => ({ files: [] as FileEntry[], source: "listing" as const, discoveredSkipped: 0 }),
+    ),
     listModules(ctx.client, course.id).catch(() => [] as ModuleInfo[]),
     listPages(ctx.client, course.id).catch(() => [] as PageSummary[]),
   ]);
 
   const candidates: MaterialCandidate[] = [];
 
-  for (const f of files) {
+  for (const f of filesResult.files) {
     candidates.push({ kind: "file", title: f.name, updatedAt: f.updatedAt, course, file: f });
   }
 
@@ -126,7 +134,7 @@ async function gatherCandidates(ctx: ToolContext, course: CourseInfo): Promise<M
     candidates.push({ kind: "page", title: p.title, updatedAt: p.updatedAt, course, page: p });
   }
 
-  return candidates;
+  return { candidates, filesSource: filesResult.source };
 }
 
 export const tool = defineTool({
@@ -146,14 +154,23 @@ export const tool = defineTool({
 
     const limit = input.limit ?? 15;
     const perCourse = await Promise.all(courses.map((course) => gatherCandidates(ctx, course)));
-    const candidates = perCourse.flat();
+    const candidates = perCourse.flatMap((c) => c.candidates);
+
+    const discoveredSlugs = courses
+      .filter((_, i) => perCourse[i]!.filesSource === "discovered")
+      .map((c) => c.slug);
+    const footer =
+      discoveredSlugs.length > 0
+        ? `\n\nNote: ${discoveredSlugs.join(", ")} hide${discoveredSlugs.length === 1 ? "s" : ""} the Files tab — ` +
+          `file results for ${discoveredSlugs.length === 1 ? "it" : "them"} come from modules/pages and may be incomplete.`
+        : "";
 
     const ranked = rankMaterials(input.query, candidates).slice(0, limit);
 
     if (ranked.length === 0) {
-      return `No materials match "${input.query}".`;
+      return `No materials match "${input.query}".${footer}`;
     }
 
-    return ranked.map(({ candidate }) => formatHit(ctx, candidate)).join("\n");
+    return ranked.map(({ candidate }) => formatHit(ctx, candidate)).join("\n") + footer;
   },
 });

@@ -4,6 +4,7 @@
 // wires MCP SDK error handling around each handler. No business logic lives
 // here — see src/tools/*.ts.
 
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CanvasAuthError } from "./canvas/client.js";
@@ -73,7 +74,15 @@ async function main(): Promise<void> {
   console.error("canvas-mcp: connected (stdio)");
 }
 
-main().catch((err) => {
-  console.error("canvas-mcp: fatal error", err);
-  process.exit(1);
-});
+// Only run the stdio server when this file is executed directly (`node dist/index.js`,
+// `tsx src/index.ts`, or the shebang) — not when it's imported, e.g. by tests importing
+// `createServer`. Without this guard, importing this module would unconditionally build a
+// real ToolContext from `.env` and bind a live StdioServerTransport to the process's stdio.
+const isMainModule = process.argv[1] !== undefined && process.argv[1] === fileURLToPath(import.meta.url);
+
+if (isMainModule) {
+  main().catch((err) => {
+    console.error("canvas-mcp: fatal error", err);
+    process.exit(1);
+  });
+}

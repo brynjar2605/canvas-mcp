@@ -62,4 +62,44 @@ describe("getGrades", () => {
     expect(await getGrades(client, [])).toEqual([]);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it("computes a fallbackPercent from graded assignments when Canvas hides current_score (RU behavior)", async () => {
+    const enrollments = [
+      { course_id: 1, type: "StudentEnrollment", grades: { current_score: null, current_grade: null, final_score: null } },
+    ];
+    const assignments = [
+      { id: 1, name: "HW1", html_url: "https://x.test/1", points_possible: 2, submission: { score: 2 } },
+      { id: 2, name: "HW2", html_url: "https://x.test/2", points_possible: 10, submission: { score: 8 } },
+      { id: 3, name: "HW3 (ungraded)", html_url: "https://x.test/3", points_possible: 10 },
+    ];
+    const fetchImpl = vi.fn<FetchImpl>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/users/self/enrollments") return jsonResponse(enrollments);
+      if (url.pathname === "/api/v1/courses/1/assignments") return jsonResponse(assignments);
+      throw new Error(`unexpected path: ${url.pathname}`);
+    });
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+
+    const grades = await getGrades(client, [courses[0]!]);
+
+    expect(grades).toHaveLength(1);
+    expect(grades[0]!.currentScore).toBeNull();
+    expect(grades[0]!.gradedCount).toBe(2);
+    expect(grades[0]!.totalCount).toBe(3);
+    expect(grades[0]!.fallbackPercent).toBeCloseTo((10 / 12) * 100, 1); // 83.3%
+  });
+
+  it("does not compute a fallback (or call the assignments endpoint) when current_score is present", async () => {
+    const enrollments = [{ course_id: 1, type: "StudentEnrollment", grades: { current_score: 75 } }];
+    const fetchImpl = vi.fn<FetchImpl>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/users/self/enrollments") return jsonResponse(enrollments);
+      throw new Error(`unexpected path: ${url.pathname}`);
+    });
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+
+    const grades = await getGrades(client, [courses[0]!]);
+    expect(grades[0]!.fallbackPercent).toBeUndefined();
+    expect(grades[0]!.gradedCount).toBeUndefined();
+  });
 });
