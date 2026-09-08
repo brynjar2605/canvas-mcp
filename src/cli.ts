@@ -8,6 +8,8 @@
 //   canvas-mcp mapping [--semester N] [--apply] [--override old=slug ...]
 //   canvas-mcp sync <slug|all> [--dry-run]
 //   canvas-mcp status [slug]
+//   canvas-mcp tool <name> [json]
+//   canvas-mcp tools
 //   canvas-mcp help | --help | -h
 
 import { z } from "zod";
@@ -18,6 +20,7 @@ import { tool as listCoursesTool } from "./tools/list_courses.js";
 import { tool as proposeCourseMappingTool } from "./tools/propose_course_mapping.js";
 import { tool as syncCourseTool } from "./tools/sync_course.js";
 import { tool as syncStatusTool } from "./tools/sync_status.js";
+import { allTools } from "./tools/_registry.js";
 import type { ToolContext } from "./tools/_types.js";
 import type { ToolDef } from "./tools/_types.js";
 
@@ -82,6 +85,10 @@ export function usage(): string {
     "                                              Canvas-course -> local-folder mapping.",
     "  canvas-mcp sync <slug|all> [--dry-run]     Download new/changed course material.",
     "  canvas-mcp status [slug]                   Show sync status for one or all courses.",
+    "  canvas-mcp tool <name> [json]              Run one MCP tool directly by name; json",
+    "                                              (default '{}') is validated with that",
+    "                                              tool's own zod schema.",
+    "  canvas-mcp tools                           List all available tool names.",
     "  canvas-mcp help | --help | -h              Show this message.",
   ].join("\n");
 }
@@ -131,6 +138,37 @@ export async function run(argv: string[]): Promise<string> {
       const input = validateInput(syncStatusTool, { course: positional[0] });
       return syncStatusTool.handler(input, ctx);
     }
+
+    case "tool": {
+      const { positional } = parseArgs(rest);
+      const name = positional[0];
+      const names = allTools.map((t) => t.name).join(", ");
+      if (!name) {
+        throw new Error(`Usage: canvas-mcp tool <name> [json]\n\nAvailable tools: ${names}`);
+      }
+      const tool = allTools.find((t) => t.name === name);
+      if (!tool) {
+        throw new Error(`Unknown tool "${name}". Available tools: ${names}`);
+      }
+
+      const jsonArg = positional[1] ?? "{}";
+      let raw: unknown;
+      try {
+        raw = JSON.parse(jsonArg);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Invalid JSON for "tool ${name}": ${message}`);
+      }
+      if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+        throw new Error(`Invalid JSON for "tool ${name}": expected a JSON object, got ${JSON.stringify(raw)}`);
+      }
+
+      const input = validateInput(tool, raw as Record<string, unknown>);
+      return tool.handler(input, ctx);
+    }
+
+    case "tools":
+      return allTools.map((t) => `${t.name} — ${t.description}`).join("\n");
 
     default:
       throw new Error(`Unknown command "${cmd}".\n\n${usage()}`);

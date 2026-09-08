@@ -79,4 +79,24 @@ describe("cli", () => {
   it("validates the sync command's course argument through its zod schema", async () => {
     await expect(run(["sync", "thyd", "--dry-run"])).resolves.toBeTypeOf("string");
   });
+
+  it("`tool list_courses` runs the tool by name and prints its output", async () => {
+    const result = await run(["tool", "list_courses"]);
+    expect(result).toContain("thyd");
+  });
+
+  it("`tool nope` fails clearly and lists available tool names", async () => {
+    await expect(run(["tool", "nope"])).rejects.toThrow(/Unknown tool "nope".*list_courses/s);
+  });
+
+  it("`tool get_assignment '{}'` fails zod validation", async () => {
+    await expect(run(["tool", "get_assignment", "{}"])).rejects.toThrow(/Invalid arguments for "get_assignment"/);
+  });
+
+  it("`tools` lists every registered tool name", async () => {
+    const result = await run(["tools"]);
+    const lines = result.split("\n");
+    expect(lines).toHaveLength(15);
+    expect(result).toContain("list_courses — ");
+  });
 });

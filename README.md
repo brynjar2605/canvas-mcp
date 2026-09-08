@@ -163,6 +163,10 @@ npx canvas-mcp sync thyd --dry-run              # report what would change, writ
 npx canvas-mcp status                           # same as sync_status, all current courses
 npx canvas-mcp status thyd                      # sync status for one course
 
+npx canvas-mcp tool list_courses                # run any MCP tool directly by name
+npx canvas-mcp tool get_assignment '{"course":"thyd","assignment_id":123}'
+npx canvas-mcp tools                            # list every tool name — description
+
 npx canvas-mcp help                             # usage (also --help / -h)
 ```
 
