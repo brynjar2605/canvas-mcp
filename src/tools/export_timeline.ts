@@ -32,6 +32,9 @@ interface Row {
   status: RowStatus;
   url: string | null;
   canvas_ids: number[];
+  /** Section name (e.g. "Hópur 1"), when the underlying event(s) had one. null for deadlines
+   * and for events with no section suffix (lectures, unsectioned courses). */
+  section: string | null;
 }
 
 function toIsoUtc(iso: string): string {
@@ -72,6 +75,7 @@ function deadlineToRow(item: UpcomingItem, baseUrl: string, now: Date): Row {
     status: deadlineStatus(item, now),
     url: absoluteUrl(baseUrl, item.htmlUrl),
     canvas_ids: item.contentId !== null ? [item.contentId] : [],
+    section: null,
   };
 }
 
@@ -103,6 +107,7 @@ function eventsToRows(
     ids: number[];
     points: number | null;
     url: string | null;
+    section: string | null;
   }
   const groups = new Map<string, Group>();
   const order: string[] = [];
@@ -123,6 +128,7 @@ function eventsToRows(
         ids: [],
         points: item.points,
         url: item.htmlUrl,
+        section: item.section,
       };
       groups.set(key, g);
       order.push(key);
@@ -131,6 +137,7 @@ function eventsToRows(
     if (room) g.rooms.add(room);
     if (item.contentId !== null) g.ids.push(item.contentId);
     if (!g.url && item.htmlUrl) g.url = item.htmlUrl;
+    if (!g.section && item.section) g.section = item.section;
   }
 
   return order.map((key) => {
@@ -149,6 +156,7 @@ function eventsToRows(
       status: null,
       url: absoluteUrl(baseUrl, g.url),
       canvas_ids: g.ids,
+      section: g.section,
     };
   });
 }

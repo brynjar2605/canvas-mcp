@@ -24,6 +24,10 @@ export interface UpcomingItem {
   /** Submission score, when Canvas's planner response includes one. null for events and
    * ungraded/unscored deadlines. */
   score: number | null;
+  /** Section name stripped from a trailing `(Hópur N)` / `(<section name>)` suffix on the
+   * event's title (see `stripSectionSuffix`). null when the title carried no such suffix, or
+   * for non-event item types. */
+  section: string | null;
 }
 
 export const DEFAULT_UPCOMING_DAYS = 14;
@@ -75,12 +79,29 @@ function scoreFromPlanner(item: PlannerItem): number | null {
   return null;
 }
 
+const SECTION_SUFFIX_RE = /\s*\(([^()]+)\)\s*$/;
+
+/**
+ * Strips a trailing `(Hópur N)` / `(<section name>)` suffix Canvas appends to the title of a
+ * per-section "child" calendar event (e.g. "M120 - Tölvusamskipti - Dæmatímar (Hópur 1)"),
+ * returning the bare title plus the extracted section name — so the room-prefixed convention
+ * still matches `parseEventTitle` and the section isn't just lost.
+ */
+function stripSectionSuffix(title: string): { title: string; section: string | null } {
+  const m = SECTION_SUFFIX_RE.exec(title);
+  if (!m) return { title, section: null };
+  return { title: title.slice(0, m.index).trimEnd(), section: m[1]!.trim() };
+}
+
 function plannerItemToUpcoming(item: PlannerItem, byId: Map<number, CourseInfo>): UpcomingItem {
   const course = item.course_id != null ? byId.get(item.course_id) ?? null : null;
+  const rawTitle = item.plannable.title ?? "(untitled)";
+  const { title, section } =
+    item.plannable_type === "calendar_event" ? stripSectionSuffix(rawTitle) : { title: rawTitle, section: null };
   return {
     date: item.plannable_date,
     type: plannerTypeToUpcomingType(item.plannable_type),
-    title: item.plannable.title ?? "(untitled)",
+    title,
     courseSlug: course?.slug ?? null,
     courseId: course?.id ?? item.course_id ?? null,
     points: item.plannable.points_possible ?? null,
@@ -92,6 +113,7 @@ function plannerItemToUpcoming(item: PlannerItem, byId: Map<number, CourseInfo>)
     contentId: item.plannable_id,
     location: item.plannable.location_name ?? null,
     score: scoreFromPlanner(item),
+    section,
   };
 }
 
@@ -104,10 +126,11 @@ function calendarEventToUpcoming(event: CalendarEvent, byId: Map<number, CourseI
   if (!event.start_at) return null;
   const courseId = courseIdFromContextCode(event.context_code);
   const course = courseId !== null ? byId.get(courseId) ?? null : null;
+  const { title, section } = stripSectionSuffix(event.title);
   return {
     date: event.start_at,
     type: "event",
-    title: event.title,
+    title,
     courseSlug: course?.slug ?? null,
     courseId: course?.id ?? courseId,
     points: null,
@@ -117,16 +140,23 @@ function calendarEventToUpcoming(event: CalendarEvent, byId: Map<number, CourseI
     contentId: event.id,
     location: event.location_name ?? null,
     score: null,
+    section,
   };
 }
 
 /**
  * Merged upcoming timeline for the given courses: planner items (assignments,
  * quizzes, discussions, announcements, and — confirmed live — lecture/dæmatími
- * `calendar_event` plannables too) plus the calendar_events endpoint (a
- * redundant source now that the planner covers events). Deduped by (type, id):
- * a `calendar_event` planner item's `plannable_id` is the same numeric id as
- * the underlying CalendarEvent, so both sides key as `event:<id>` and the
+ * `calendar_event` plannables too) plus the calendar_events endpoint. The
+ * planner is already scoped to the caller's own section, but calendar_events
+ * is not: for a course split into sections (e.g. several Dæmatímar groups),
+ * Canvas gives each section its own "child" event and also a course-wide
+ * "parent" event (`child_events_count > 0`, `parent_event_id: null`) that
+ * stands in for *all* of them — that parent is skipped below since showing it
+ * would pull in every other section's slot too; only real occurrences (plain
+ * course-wide events and per-section children) are kept. Deduped by (type,
+ * id): a `calendar_event` planner item's `plannable_id` is the same numeric id
+ * as the underlying CalendarEvent, so both sides key as `event:<id>` and the
  * planner's copy (kept first) wins — which is why `plannerItemToUpcoming`
  * also reads `plannable.end_at`, so the lecture's end time isn't lost when
  * the calendar_events duplicate gets deduped away. Sorted by date ascending.
@@ -174,6 +204,12 @@ export async function getUpcoming(
       context_codes: contextCodes,
     });
     for (const event of calendarEvents) {
+      // A course-wide event with child_events_count > 0 is a "parent": Canvas has already
+      // split it into per-section child events (one of which is the caller's own section,
+      // if any — surfaced separately, either here with parent_event_id set or via the
+      // planner). The parent itself isn't a real occurrence anyone attends, and showing it
+      // would wrongly include every other section's slot too, so it's dropped here.
+      if ((event.child_events_count ?? 0) > 0) continue;
       const key = `event:${event.id}`;
       if (seen.has(key)) continue;
       const upcoming = calendarEventToUpcoming(event, byId);

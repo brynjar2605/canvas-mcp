@@ -162,4 +162,98 @@ describe("getUpcoming", () => {
     const items = await getUpcoming(client, courses, 14);
     expect(items).toEqual([]);
   });
+
+  // Live data from reykjavik.instructure.com for tsam (course 2) on 2026-09-09: the planner
+  // (already scoped to the caller's own section) returns exactly one Dæmatímar — the
+  // "child" event 944371, whose calendar_events copy carries parent_event_id 944370 and
+  // context_code course_section_13627. /calendar_events for the whole course additionally
+  // returns SIX course-wide "parent" events (one per section per timeslot, each with
+  // child_events_count: 1, parent_event_id: null, context_code course_10483) plus one
+  // course-wide lecture (child_events_count: 0). Only the caller's own lab and the lecture
+  // must survive; the five other sections' parents must not.
+  it("drops course-wide parent events (child_events_count > 0) but keeps the caller's own section and course-wide lectures", async () => {
+    const plannerItems = [
+      {
+        plannable_type: "calendar_event",
+        plannable_id: 944371,
+        plannable_date: "2026-09-09T08:30:00Z",
+        course_id: 2,
+        plannable: {
+          title: "M120 - Tölvusamskipti - Dæmatímar (Hópur 1)",
+          start_at: "2026-09-09T08:30:00Z",
+          end_at: "2026-09-09T10:10:00Z",
+          location_name: "M120",
+        },
+        html_url: "https://x.test/event/944371",
+        submissions: false,
+      },
+    ];
+    const calendarEvents = [
+      // Parents for all six section slots (three timeslots x two other courses' worth of
+      // sections in this fixture) — none of these belong to the caller and must be dropped.
+      { id: 944370, title: "M120 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T08:30:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944370" },
+      { id: 944800, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T08:30:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944800" },
+      { id: 944392, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T10:10:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944392" },
+      { id: 944824, title: "M120 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T10:10:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944824" },
+      { id: 944774, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T12:40:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944774" },
+      { id: 949233, title: "M123 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T16:50:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/949233" },
+      // Course-wide lecture (no sections) — must stay.
+      { id: 934198, title: "M101 - Tölvusamskipti - Fyrirlestrar", start_at: "2026-09-09T12:40:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 0, html_url: "https://x.test/event/934198" },
+      // The caller's own section's child event — also appears in calendar_events, but
+      // dedupes against the planner's copy of id 944371.
+      { id: 944371, title: "M120 - Tölvusamskipti - Dæmatímar (Hópur 1)", start_at: "2026-09-09T08:30:00Z", context_code: "course_section_13627", parent_event_id: 944370, child_events_count: 0, html_url: "https://x.test/event/944371" },
+    ];
+
+    const fetchImpl = vi.fn<FetchImpl>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
+      if (url.pathname === "/api/v1/calendar_events") return jsonResponse(calendarEvents);
+      throw new Error(`unexpected path: ${url.pathname}`);
+    });
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+
+    const items = await getUpcoming(client, courses, 1, 0);
+    const dayItems = items.filter((i) => i.date.startsWith("2026-09-09"));
+
+    expect(dayItems).toHaveLength(2);
+
+    const lab = dayItems.find((i) => i.contentId === 944371)!;
+    expect(lab).toBeTruthy();
+    expect(lab.title).toBe("M120 - Tölvusamskipti - Dæmatímar");
+    expect(lab.section).toBe("Hópur 1");
+    expect(parseEventTitle(lab.title)).toEqual({ room: "M120", kind: "Dæmatímar" });
+
+    const lecture = dayItems.find((i) => i.contentId === 934198)!;
+    expect(lecture).toBeTruthy();
+    expect(lecture.section).toBeNull();
+
+    expect(dayItems.some((i) => i.contentId === 944800)).toBe(false); // M121 08:30 — other section
+    expect(dayItems.some((i) => i.contentId === 944392)).toBe(false); // M121 10:10
+    expect(dayItems.some((i) => i.contentId === 944824)).toBe(false); // M120 10:10
+    expect(dayItems.some((i) => i.contentId === 944774)).toBe(false); // M121 12:40
+    expect(dayItems.some((i) => i.contentId === 949233)).toBe(false); // M123 16:50
+  });
+
+  it("keeps genuinely course-wide duplicate events (child_events_count: 0, no parent/child relationship)", async () => {
+    // Two distinct course-wide calendar_events (not section overrides — both have
+    // child_events_count: 0) that happen to share a timeslot and kind, e.g. a shared
+    // multi-room lecture recorded as two separate Canvas events. Both must be kept; merging
+    // them into one display line is export_timeline/get_upcoming's job, not getUpcoming's.
+    const calendarEvents = [
+      { id: 501, title: "V104 - Þýðendur - Fyrirlestrar", start_at: "2026-09-09T08:30:00Z", context_code: "course_1", parent_event_id: null, child_events_count: 0, html_url: "https://x.test/event/501" },
+      { id: 502, title: "V105 - Þýðendur - Fyrirlestrar", start_at: "2026-09-09T08:30:00Z", context_code: "course_1", parent_event_id: null, child_events_count: 0, html_url: "https://x.test/event/502" },
+    ];
+    const fetchImpl = vi.fn<FetchImpl>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/planner/items") return jsonResponse([]);
+      if (url.pathname === "/api/v1/calendar_events") return jsonResponse(calendarEvents);
+      throw new Error(`unexpected path: ${url.pathname}`);
+    });
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+
+    const items = await getUpcoming(client, courses, 14);
+
+    expect(items.map((i) => i.contentId).sort()).toEqual([501, 502]);
+    expect(items.every((i) => i.section === null)).toBe(true);
+  });
 });

@@ -17,7 +17,7 @@ const COURSES = [
 ];
 
 describe("get_upcoming tool", () => {
-  it("summarises deadlines vs events, lists deadlines first per day with assignment_id, and merges same-time events by room", async () => {
+  it("summarises deadlines vs events, lists deadlines first per day with assignment_id, and drops other sections' parent events", async () => {
     const plannerItems = [
       {
         plannable_type: "assignment",
@@ -27,81 +27,55 @@ describe("get_upcoming tool", () => {
         plannable: { title: "Verkefni 3", points_possible: 10 },
         submissions: { submitted: false },
       },
+      // The caller's own section — the planner is already scoped to it.
       {
         plannable_type: "calendar_event",
         plannable_id: 60,
         plannable_date: "2026-09-14T08:30:00Z",
         course_id: 1,
         plannable: {
-          title: "Dæmatímar",
+          title: "M120 - Þýðendur - Dæmatímar (Hópur 1)",
           start_at: "2026-09-14T08:30:00Z",
           end_at: "2026-09-14T10:10:00Z",
           location_name: "M120",
         },
       },
-      {
-        plannable_type: "calendar_event",
-        plannable_id: 61,
-        plannable_date: "2026-09-14T08:30:00Z",
-        course_id: 1,
-        plannable: {
-          title: "Dæmatímar",
-          start_at: "2026-09-14T08:30:00Z",
-          end_at: "2026-09-14T10:10:00Z",
-          location_name: "M121",
-        },
-      },
+    ];
+    // /calendar_events additionally returns the course-wide "parent" events for both this
+    // slot's sections (child_events_count: 1) — neither belongs to the caller and both must
+    // be dropped, leaving only the single M120 room from the planner above.
+    const calendarEvents = [
+      { id: 90, title: "M120 - Þýðendur - Dæmatímar", start_at: "2026-09-14T08:30:00Z", context_code: "course_1", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/90" },
+      { id: 91, title: "M121 - Þýðendur - Dæmatímar", start_at: "2026-09-14T08:30:00Z", context_code: "course_1", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/91" },
     ];
     const fetchImpl: FetchImpl = async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
       if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
-      if (url.pathname === "/api/v1/calendar_events") return jsonResponse([]);
+      if (url.pathname === "/api/v1/calendar_events") return jsonResponse(calendarEvents);
       throw new Error(`unexpected path: ${url.pathname}`);
     };
     const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
 
     const result = await tool.handler({ days: 14 }, { client, config: fakeConfig() });
 
-    expect(result).toMatch(/^1 deadline, 2 lectures\/labs in the next 14 days\.$/m);
-    // Deadline appears before the merged event line within the day's section.
+    expect(result).toMatch(/^1 deadline, 1 lecture\/lab in the next 14 days\.$/m);
+    // Deadline appears before the event line within the day's section.
     const deadlineIdx = result.indexOf("Verkefni 3");
     const eventIdx = result.indexOf("🕘 08:30–10:10 thyd Dæmatímar");
     expect(deadlineIdx).toBeGreaterThan(-1);
     expect(eventIdx).toBeGreaterThan(-1);
     expect(deadlineIdx).toBeLessThan(eventIdx);
-    expect(result).toContain("(M120, M121)");
+    expect(result).toContain("(M120)");
+    expect(result).not.toContain("(M120, M121)");
+    expect(result).not.toContain("M121");
     expect(result).toContain("assignment_id 500");
     expect(result).not.toContain("html_url");
     expect(result).not.toContain("https://");
   });
 
-  it("parses RU's <ROOM> - <course name> - <kind> event titles and merges sections by kind, not raw title", async () => {
+  it("parses RU's <ROOM> - <course name> - <kind> event titles and merges genuinely course-wide duplicate events (child_events_count: 0) by kind, not raw title", async () => {
     const plannerItems = [
-      {
-        plannable_type: "calendar_event",
-        plannable_id: 70,
-        plannable_date: "2026-09-14T08:30:00Z",
-        course_id: 2,
-        plannable: {
-          title: "M120 - Tölvusamskipti - Dæmatímar",
-          start_at: "2026-09-14T08:30:00Z",
-          end_at: "2026-09-14T10:10:00Z",
-          location_name: "M120",
-        },
-      },
-      {
-        plannable_type: "calendar_event",
-        plannable_id: 71,
-        plannable_date: "2026-09-14T08:30:00Z",
-        course_id: 2,
-        plannable: {
-          title: "M121 - Tölvusamskipti - Dæmatímar",
-          start_at: "2026-09-14T08:30:00Z",
-          end_at: "2026-09-14T10:10:00Z",
-          location_name: "M121",
-        },
-      },
       {
         plannable_type: "calendar_event",
         plannable_id: 72,
@@ -115,11 +89,18 @@ describe("get_upcoming tool", () => {
         },
       },
     ];
+    // Two distinct course-wide events (child_events_count: 0 — no section overrides here,
+    // just two rooms for the same shared lecture slot) must still merge into one display
+    // line, same as before the section-parent fix.
+    const calendarEvents = [
+      { id: 70, title: "M120 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-14T08:30:00Z", end_at: "2026-09-14T10:10:00Z", context_code: "course_2", parent_event_id: null, child_events_count: 0, html_url: "https://x.test/event/70" },
+      { id: 71, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-14T08:30:00Z", end_at: "2026-09-14T10:10:00Z", context_code: "course_2", parent_event_id: null, child_events_count: 0, html_url: "https://x.test/event/71" },
+    ];
     const fetchImpl: FetchImpl = async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
       if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
-      if (url.pathname === "/api/v1/calendar_events") return jsonResponse([]);
+      if (url.pathname === "/api/v1/calendar_events") return jsonResponse(calendarEvents);
       throw new Error(`unexpected path: ${url.pathname}`);
     };
     const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });

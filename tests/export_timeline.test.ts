@@ -36,24 +36,33 @@ interface ExportedTimeline {
   rows: ExportedRow[];
 }
 
-function fetchImplFor(plannerItems: unknown[]): FetchImpl {
+function fetchImplFor(plannerItems: unknown[], calendarEvents: unknown[] = []): FetchImpl {
   return async (input) => {
     const url = new URL(String(input));
     if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
     if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
-    if (url.pathname === "/api/v1/calendar_events") return jsonResponse([]);
+    if (url.pathname === "/api/v1/calendar_events") return jsonResponse(calendarEvents);
     throw new Error(`unexpected path: ${url.pathname}`);
   };
 }
 
-async function run(plannerItems: unknown[], input: Record<string, unknown> = {}): Promise<ExportedTimeline> {
-  const client = new CanvasClient(fakeConfig(), { fetchImpl: fetchImplFor(plannerItems), sleep: async () => {} });
+async function run(
+  plannerItems: unknown[],
+  input: Record<string, unknown> = {},
+  calendarEvents: unknown[] = [],
+): Promise<ExportedTimeline> {
+  const client = new CanvasClient(fakeConfig(), {
+    fetchImpl: fetchImplFor(plannerItems, calendarEvents),
+    sleep: async () => {},
+  });
   const result = await tool.handler(input as never, { client, config: fakeConfig() });
   return JSON.parse(result) as ExportedTimeline;
 }
 
 describe("export_timeline tool", () => {
-  it("merges two same-time Dæmatímar sections into one row with combined rooms and ids", async () => {
+  it("drops other sections' parent events, keeping the caller's own single-room Dæmatímar section", async () => {
+    // The planner is scoped to the caller's own section: one Dæmatímar child event, with
+    // Canvas's "(Hópur N)" suffix on its title and a single room.
     const plannerItems = [
       {
         plannable_type: "calendar_event",
@@ -61,37 +70,54 @@ describe("export_timeline tool", () => {
         plannable_date: "2026-09-14T08:30:00Z",
         course_id: 1,
         plannable: {
-          title: "M120 - Þýðendur - Dæmatímar",
+          title: "M120 - Þýðendur - Dæmatímar (Hópur 1)",
           start_at: "2026-09-14T08:30:00Z",
           end_at: "2026-09-14T10:10:00Z",
           location_name: "M120",
         },
       },
-      {
-        plannable_type: "calendar_event",
-        plannable_id: 61,
-        plannable_date: "2026-09-14T08:30:00Z",
-        course_id: 1,
-        plannable: {
-          title: "M121 - Þýðendur - Dæmatímar",
-          start_at: "2026-09-14T08:30:00Z",
-          end_at: "2026-09-14T10:10:00Z",
-          location_name: "M121",
-        },
-      },
+    ];
+    // /calendar_events additionally returns the course-wide parent events for both sections
+    // sharing this slot (child_events_count: 1) — both must be dropped, so only one room ends
+    // up on the row.
+    const calendarEvents = [
+      { id: 90, title: "M120 - Þýðendur - Dæmatímar", start_at: "2026-09-14T08:30:00Z", end_at: "2026-09-14T10:10:00Z", context_code: "course_1", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/90" },
+      { id: 91, title: "M121 - Þýðendur - Dæmatímar", start_at: "2026-09-14T08:30:00Z", end_at: "2026-09-14T10:10:00Z", context_code: "course_1", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/91" },
     ];
 
-    const timeline = await run(plannerItems, { days: 21 });
+    const timeline = await run(plannerItems, { days: 21 }, calendarEvents);
+
+    expect(timeline.rows).toHaveLength(1);
+    const row = timeline.rows[0]!;
+    expect(row.type).toBe("Lab");
+    expect(row.title).toBe("Dæmatímar — Þýðendur");
+    expect(row.rooms).toEqual(["M120"]);
+    expect(row.canvas_ids).toEqual([60]);
+    expect(row.status).toBeNull();
+    expect(row.start).toBe("2026-09-14T08:30:00.000Z");
+    expect(row.end).toBe("2026-09-14T10:10:00.000Z");
+    expect(row.section).toBe("Hópur 1");
+  });
+
+  it("merges genuinely course-wide duplicate events (child_events_count: 0) sharing a timeslot into one row", async () => {
+    // Two distinct course-wide events, not section overrides — both child_events_count: 0 —
+    // that happen to share a timeslot and kind (e.g. a shared lecture split across two rooms
+    // with no per-section structure). These must still merge, same as before the
+    // section-parent fix, and carry no `section`.
+    const calendarEvents = [
+      { id: 70, title: "M120 - Þýðendur - Dæmatímar", start_at: "2026-09-14T08:30:00Z", end_at: "2026-09-14T10:10:00Z", context_code: "course_1", parent_event_id: null, child_events_count: 0, html_url: "https://x.test/event/70" },
+      { id: 71, title: "M121 - Þýðendur - Dæmatímar", start_at: "2026-09-14T08:30:00Z", end_at: "2026-09-14T10:10:00Z", context_code: "course_1", parent_event_id: null, child_events_count: 0, html_url: "https://x.test/event/71" },
+    ];
+
+    const timeline = await run([], { days: 21 }, calendarEvents);
 
     expect(timeline.rows).toHaveLength(1);
     const row = timeline.rows[0]!;
     expect(row.type).toBe("Lab");
     expect(row.title).toBe("Dæmatímar — Þýðendur");
     expect(row.rooms).toEqual(["M120", "M121"]);
-    expect(row.canvas_ids.sort()).toEqual([60, 61]);
-    expect(row.status).toBeNull();
-    expect(row.start).toBe("2026-09-14T08:30:00.000Z");
-    expect(row.end).toBe("2026-09-14T10:10:00.000Z");
+    expect(row.canvas_ids.sort()).toEqual([70, 71]);
+    expect(row.section).toBeNull();
   });
 
   it("marks a graded assignment (score present) as Graded", async () => {

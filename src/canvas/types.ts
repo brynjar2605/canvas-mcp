@@ -159,6 +159,16 @@ export interface CalendarEvent {
   html_url: string;
   /** Room/location Canvas has on file for the event (e.g. "M120"), when set. */
   location_name?: string | null;
+  /** Set on a per-section "child" event (Canvas's section-override mechanism) to the id of
+   * the course-wide "parent" event it overrides. Absent/null on the parent itself and on
+   * plain course-wide events with no section overrides. */
+  parent_event_id?: number | null;
+  /** Present on a course-wide event: how many per-section child events Canvas generated for
+   * it. >0 means this event is a parent whose real occurrences are those children (each
+   * scoped to one section, possibly not the caller's) — the parent itself must be skipped. */
+  child_events_count?: number;
+  /** All context codes (course + section) this event is visible under, when Canvas includes it. */
+  all_context_codes?: string;
 }
 
 export interface Announcement {
