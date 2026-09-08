@@ -171,6 +171,15 @@ export interface CalendarEvent {
   all_context_codes?: string;
 }
 
+export interface AnnouncementAttachment {
+  id: number;
+  display_name?: string;
+  filename?: string;
+  url?: string;
+  "content-type"?: string;
+  size?: number;
+}
+
 export interface Announcement {
   id: number;
   title: string;
@@ -178,4 +187,7 @@ export interface Announcement {
   posted_at?: string | null;
   context_code: string;
   html_url: string;
+  /** File attachments Canvas lets teachers attach directly to an announcement, distinct
+   * from files merely linked in `message`'s rich-text body. */
+  attachments?: AnnouncementAttachment[];
 }

@@ -47,6 +47,8 @@ export interface SyncReport {
   source?: "listing" | "discovered";
   /** Discovered file ids that individually 401/403/404'd and were dropped (only set when source is "discovered"). */
   discoveredSkipped?: number;
+  /** How many discovered files were found via an announcement (only set when source is "discovered" and > 0). */
+  announcementDiscoveredCount?: number;
 }
 
 const SAVE_EVERY_N = 10;
@@ -237,6 +239,10 @@ export async function syncCourse(
   report.source = filesResult.source;
   if (filesResult.source === "discovered") {
     report.discoveredSkipped = filesResult.discoveredSkipped;
+    const announcementCount = files.filter((f) => f.discoveredVia?.includes("announcement")).length;
+    if (announcementCount > 0) {
+      report.announcementDiscoveredCount = announcementCount;
+    }
   }
   const filePathById = assignFilePaths(files, manifest, dir);
   const fileById = new Map(files.map((f) => [f.id, f] as const));

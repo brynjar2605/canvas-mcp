@@ -3,6 +3,8 @@ import { CanvasApiError, CanvasAuthError } from "./client.js";
 import type { CanvasFile, Folder } from "./types.js";
 import { listModules } from "./modules.js";
 import { getPage, listPages } from "./pages.js";
+import { listAnnouncements } from "./announcements.js";
+import type { CourseInfo } from "./courses.js";
 import { mapWithConcurrency } from "../util/concurrency.js";
 import { sanitizeFolderPath } from "../util/fs.js";
 
@@ -13,6 +15,9 @@ import { sanitizeFolderPath } from "../util/fs.js";
  * TEMPLATE FILES filter (they're not known to be junk) and out of the
  * files/ root (so they don't collide with real root files). */
 export const UNKNOWN_FOLDER_BUCKET = "_unknown-folder";
+
+/** Where a discovered file id was found. Only populated when `source === "discovered"`. */
+export type FileDiscoverySource = "module" | "page" | "assignment" | "announcement";
 
 /** Compact, LLM-friendly file record used across sync + tools. */
 export interface FileEntry {
@@ -29,14 +34,20 @@ export interface FileEntry {
   /**
    * "listing" when `GET /courses/:id/files` worked normally; "discovered" when
    * that endpoint was forbidden and the file list was instead reconstructed
-   * from modules/pages/assignments (see `listAllFilesWithMeta`) — in which
-   * case the list may be incomplete.
+   * from modules/pages/assignments/announcements (see `listAllFilesWithMeta`)
+   * — in which case the list may be incomplete.
    */
   source: "listing" | "discovered";
+  /** Which discovery source(s) surfaced this id — diagnostic only, set only in discovered mode.
+   * A file linked from more than one place (e.g. a module item and an announcement) lists both. */
+  discoveredVia?: FileDiscoverySource[];
 }
 
 const FILES_TTL_MS = 10 * 60 * 1000;
 const DISCOVERY_CONCURRENCY = 4;
+/** How far back to scan announcements when discovering files for a course whose Files tab is
+ * hidden — wide enough to cover a full term's worth of posted slide decks/handouts. */
+const ANNOUNCEMENT_DISCOVERY_DAYS = 200;
 
 /**
  * Canvas folder `full_name` looks like "course files" (root) or
@@ -82,6 +93,7 @@ function toFileEntry(
   f: CanvasFile,
   folderPathById: Map<number, string>,
   source: "listing" | "discovered",
+  discoveredVia?: FileDiscoverySource[],
 ): FileEntry {
   // `folderPathById.get(...) === ""` (the root folder) is a normal, known
   // location. Not being in the map at all means Canvas's folder listing
@@ -100,6 +112,7 @@ function toFileEntry(
     url: f.url,
     locked: Boolean(f.locked || f.hidden || f.locked_for_user),
     source,
+    ...(discoveredVia && discoveredVia.length > 0 ? { discoveredVia } : {}),
   };
 }
 
@@ -132,20 +145,41 @@ async function listViaListing(client: CanvasClient, courseId: number): Promise<F
     .filter((f) => !isTemplateFilesPath(f.folderPath));
 }
 
+/** Placeholder `CourseInfo` used only to drive `listAnnouncements`'s context-code matching
+ * from a bare course id — `discoverFileIds` doesn't have (and doesn't need) the real course
+ * record; only `id` is inspected when mapping `context_code` back to a course. */
+function courseInfoStub(courseId: number): CourseInfo {
+  return { id: courseId, code: "", slug: "", name: "", term: null, semester: null };
+}
+
 /**
  * Reconstructs the set of file ids reachable by a student when the Files tab
  * itself is hidden (RU does this for most courses): every module item of
- * type "File", plus any `/files/:id` link found in page bodies or assignment
- * descriptions.
+ * type "File", any `/files/:id` link found in page bodies or assignment
+ * descriptions, and any file linked or attached in an announcement (a common
+ * pattern for teachers who post slide decks straight into announcements
+ * rather than through modules/pages). Returns each discovered id mapped to
+ * the source(s) it was found via, for diagnostics.
  */
-async function discoverFileIds(client: CanvasClient, courseId: number): Promise<Set<number>> {
-  const ids = new Set<number>();
+async function discoverFileIds(
+  client: CanvasClient,
+  courseId: number,
+): Promise<Map<number, Set<FileDiscoverySource>>> {
+  const idsBySource = new Map<number, Set<FileDiscoverySource>>();
+  const add = (id: number, source: FileDiscoverySource) => {
+    let sources = idsBySource.get(id);
+    if (!sources) {
+      sources = new Set();
+      idsBySource.set(id, sources);
+    }
+    sources.add(source);
+  };
 
   const modules = await listModules(client, courseId);
   for (const mod of modules) {
     for (const item of mod.items) {
       if (item.type === "File" && item.contentId !== null) {
-        ids.add(item.contentId);
+        add(item.contentId, "module");
       }
     }
   }
@@ -154,7 +188,7 @@ async function discoverFileIds(client: CanvasClient, courseId: number): Promise<
   for (const p of pages) {
     try {
       const full = await getPage(client, courseId, p.url);
-      for (const id of extractFileIds(full.bodyHtml)) ids.add(id);
+      for (const id of extractFileIds(full.bodyHtml)) add(id, "page");
     } catch {
       // A single page failing to load shouldn't abort discovery for the rest.
     }
@@ -166,24 +200,36 @@ async function discoverFileIds(client: CanvasClient, courseId: number): Promise<
     FILES_TTL_MS,
   );
   for (const a of assignments) {
-    for (const id of extractFileIds(a.description)) ids.add(id);
+    for (const id of extractFileIds(a.description)) add(id, "assignment");
   }
 
-  return ids;
+  try {
+    const announcements = await listAnnouncements(client, [courseInfoStub(courseId)], ANNOUNCEMENT_DISCOVERY_DAYS);
+    for (const ann of announcements) {
+      for (const id of extractFileIds(ann.messageHtml)) add(id, "announcement");
+      for (const attachment of ann.attachments) add(attachment.id, "announcement");
+    }
+  } catch {
+    // Announcements being unreachable (disabled, permissions) shouldn't abort discovery
+    // via the other sources.
+  }
+
+  return idsBySource;
 }
 
 async function fetchDiscoveredFiles(
   client: CanvasClient,
-  ids: Set<number>,
+  idsBySource: Map<number, Set<FileDiscoverySource>>,
   folderPathById: Map<number, string>,
 ): Promise<{ files: FileEntry[]; skipped: number }> {
   const files: FileEntry[] = [];
   let skipped = 0;
 
-  await mapWithConcurrency([...ids], DISCOVERY_CONCURRENCY, async (id) => {
+  await mapWithConcurrency([...idsBySource.keys()], DISCOVERY_CONCURRENCY, async (id) => {
     try {
       const f = await client.get<CanvasFile>(`/api/v1/files/${id}`, undefined, FILES_TTL_MS);
-      files.push(toFileEntry(f, folderPathById, "discovered"));
+      const discoveredVia = [...(idsBySource.get(id) ?? [])];
+      files.push(toFileEntry(f, folderPathById, "discovered", discoveredVia));
     } catch (err) {
       if (isAccessDenied(err) || (err instanceof CanvasApiError && err.status === 404)) {
         skipped++;
@@ -210,9 +256,10 @@ export interface ListAllFilesResult {
  *
  * When `GET /courses/:id/files` itself is forbidden (RU hides the Files tab
  * for most courses students are enrolled in), falls back to discovering files
- * via modules, pages and assignment descriptions instead — `source` tells
- * callers which mode produced the result, and `discoveredSkipped` how many
- * discovered ids couldn't individually be fetched.
+ * via modules, pages, assignment descriptions and announcements instead —
+ * `source` tells callers which mode produced the result, and
+ * `discoveredSkipped` how many discovered ids couldn't individually be
+ * fetched.
  */
 export async function listAllFilesWithMeta(client: CanvasClient, courseId: number): Promise<ListAllFilesResult> {
   try {

@@ -1,7 +1,12 @@
 import type { CanvasClient } from "./client.js";
 import type { CourseInfo } from "./courses.js";
-import type { Announcement } from "./types.js";
+import type { Announcement, AnnouncementAttachment } from "./types.js";
 import { htmlToMarkdown, stripVerifierParams } from "../util/html.js";
+
+export interface AnnouncementFileAttachment {
+  id: number;
+  displayName?: string;
+}
 
 export interface AnnouncementSummary {
   id: number;
@@ -10,7 +15,18 @@ export interface AnnouncementSummary {
   title: string;
   postedAt: string | null;
   bodyMarkdown: string;
+  /** Raw (un-converted) `message` HTML, kept alongside `bodyMarkdown` so callers that need
+   * to scan for `href`/`src`/`data-api-endpoint` attributes (e.g. file-id discovery) don't
+   * have to re-derive them from the markdown rendering. "" when there's no message. */
+  messageHtml: string;
+  /** Files attached directly to the announcement (Canvas's `attachments[]`), distinct from
+   * files merely linked from within `message`'s body. */
+  attachments: AnnouncementFileAttachment[];
   htmlUrl: string;
+}
+
+function toFileAttachment(a: AnnouncementAttachment): AnnouncementFileAttachment {
+  return { id: a.id, displayName: a.display_name ?? a.filename };
 }
 
 export const DEFAULT_ANNOUNCEMENT_DAYS = 30;
@@ -44,6 +60,8 @@ function toSummary(a: Announcement, byId: Map<number, CourseInfo>): Announcement
     // Strip Canvas's one-time verifier token from any file links in the body —
     // it's per-user, expires, and just adds noise to what the LLM displays.
     bodyMarkdown: stripVerifierParams(htmlToMarkdown(a.message)),
+    messageHtml: a.message ?? "",
+    attachments: (a.attachments ?? []).map(toFileAttachment),
     htmlUrl: a.html_url,
   };
 }

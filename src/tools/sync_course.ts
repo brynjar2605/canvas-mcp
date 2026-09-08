@@ -26,6 +26,9 @@ export function formatSyncReport(r: SyncReport): string {
         (r.discoveredSkipped ? ` (${r.discoveredSkipped} discovered link(s) skipped as inaccessible)` : "") +
         ` (may be incomplete)`,
     );
+    if (r.announcementDiscoveredCount) {
+      lines.push(`  ℹ ${r.announcementDiscoveredCount} of those came from announcements`);
+    }
   }
 
   const changeLines = [...r.added.map((p) => `  + ${p}`), ...r.updated.map((p) => `  ~ ${p}`)];
