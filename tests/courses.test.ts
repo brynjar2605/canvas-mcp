@@ -40,9 +40,12 @@ const FIXTURE = [
   { id: 8455, name: "Strjál stærðfræði", course_code: "T-117-STR1", workflow_state: "completed", term: { id: 4, name: "Haustönn 2024" } },
 ];
 
+const seenUrls: string[] = [];
 function fakeClient(): CanvasClient {
-  const fetchImpl: typeof fetch = async () =>
-    new Response(JSON.stringify(FIXTURE), { status: 200, headers: { "content-type": "application/json" } });
+  const fetchImpl: typeof fetch = async (input) => {
+    seenUrls.push(String(input instanceof Request ? input.url : input));
+    return new Response(JSON.stringify(FIXTURE), { status: 200, headers: { "content-type": "application/json" } });
+  };
   return new CanvasClient(
     { baseUrl: "https://x.test", token: "t", schoolRoot: "/tmp", currentSemester: 5 },
     { fetchImpl, sleep: async () => {} },
@@ -53,6 +56,10 @@ describe("listCourses / currentCourses / resolveCourse", () => {
   it("filters junk and sorts newest semester first", async () => {
     process.env.FIRST_TERM = "Haustönn 2024";
     const cs = await listCourses(fakeClient());
+    const url = decodeURIComponent(seenUrls.at(-1)!);
+    expect(url).toContain("include[]=term");
+    expect(url).toContain("state[]=available");
+    expect(url).not.toContain("[][]");
     expect(cs.map((c) => c.slug)).toEqual(["thyd", "tsam", "cacs", "str1"]);
     expect(cs[0]!.semester).toBe(5);
   });

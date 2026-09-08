@@ -67,7 +67,7 @@ const COURSES_TTL_MS = 60 * 60 * 1000;
 export async function listCourses(client: CanvasClient): Promise<CourseInfo[]> {
   const raw = await client.getAll<Course>(
     "/api/v1/courses",
-    { "include[]": ["term"], "state[]": ["available", "completed"] },
+    { include: ["term"], state: ["available", "completed"] },
     COURSES_TTL_MS,
   );
   return raw
