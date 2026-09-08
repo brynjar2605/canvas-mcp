@@ -16,6 +16,11 @@ const COURSES = [
   { id: 2, course_code: "T-409-TSAM", name: "Tölvusamskipti", term: { name: "Haustönn 2026" }, workflow_state: "available" },
 ];
 
+// "assignment"-type deadline items trigger a lookup of the course's assignment list (to resolve
+// accurate submission state — see calendar.ts's buildAssignmentsByCourse). Tests that don't care
+// about that lookup just get an empty list back, which falls back to planner-only status.
+const ASSIGNMENTS_PATH_RE = /^\/api\/v1\/courses\/(\d+)\/assignments$/;
+
 describe("get_upcoming tool", () => {
   it("summarises deadlines vs events, lists deadlines first per day with assignment_id, and drops other sections' parent events", async () => {
     const plannerItems = [
@@ -53,6 +58,8 @@ describe("get_upcoming tool", () => {
       if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
       if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
       if (url.pathname === "/api/v1/calendar_events") return jsonResponse(calendarEvents);
+      const assignmentsMatch = ASSIGNMENTS_PATH_RE.exec(url.pathname);
+      if (assignmentsMatch) return jsonResponse([]);
       throw new Error(`unexpected path: ${url.pathname}`);
     };
     const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
@@ -101,6 +108,8 @@ describe("get_upcoming tool", () => {
       if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
       if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
       if (url.pathname === "/api/v1/calendar_events") return jsonResponse(calendarEvents);
+      const assignmentsMatch = ASSIGNMENTS_PATH_RE.exec(url.pathname);
+      if (assignmentsMatch) return jsonResponse([]);
       throw new Error(`unexpected path: ${url.pathname}`);
     };
     const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
@@ -137,6 +146,8 @@ describe("get_upcoming tool", () => {
       if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
       if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
       if (url.pathname === "/api/v1/calendar_events") return jsonResponse([]);
+      const assignmentsMatch = ASSIGNMENTS_PATH_RE.exec(url.pathname);
+      if (assignmentsMatch) return jsonResponse([]);
       throw new Error(`unexpected path: ${url.pathname}`);
     };
     const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
@@ -157,6 +168,8 @@ describe("get_upcoming tool", () => {
         return jsonResponse([]);
       }
       if (url.pathname === "/api/v1/calendar_events") return jsonResponse([]);
+      const assignmentsMatch = ASSIGNMENTS_PATH_RE.exec(url.pathname);
+      if (assignmentsMatch) return jsonResponse([]);
       throw new Error(`unexpected path: ${url.pathname}`);
     };
     const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
@@ -192,6 +205,8 @@ describe("get_upcoming tool", () => {
       if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
       if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
       if (url.pathname === "/api/v1/calendar_events") return jsonResponse([]);
+      const assignmentsMatch = ASSIGNMENTS_PATH_RE.exec(url.pathname);
+      if (assignmentsMatch) return jsonResponse([]);
       throw new Error(`unexpected path: ${url.pathname}`);
     };
     const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });

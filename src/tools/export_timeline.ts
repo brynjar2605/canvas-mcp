@@ -1,7 +1,17 @@
 import { z } from "zod";
 import { defineTool } from "./_types.js";
 import { currentCourses, resolveCourse, type CourseInfo } from "../canvas/courses.js";
-import { getUpcoming, parseEventTitle, type UpcomingItem, type UpcomingItemType } from "../canvas/calendar.js";
+import {
+  buildAssignmentsByCourse,
+  deadlineStatus,
+  findAssignmentForItem,
+  getUpcoming,
+  isPastDueUnmarked,
+  parseEventTitle,
+  type AssignmentsByCourse,
+  type UpcomingItem,
+  type UpcomingItemType,
+} from "../canvas/calendar.js";
 
 const DEFAULT_DAYS = 21;
 const DEFAULT_START_OFFSET_DAYS = 0;
@@ -35,6 +45,15 @@ interface Row {
   /** Section name (e.g. "Hópur 1"), when the underlying event(s) had one. null for deadlines
    * and for events with no section suffix (lectures, unsectioned courses). */
   section: string | null;
+  /** Raw Canvas submission_types for a deadline row matched to an assignment (e.g.
+   * ["external_tool"] for Turnitin). Empty for events and unmatched deadlines (quiz/discussion,
+   * or an assignment id the fetched list didn't contain). */
+  submissionTypes: string[];
+  /** True when a deadline's due date has passed but its `status` is only "Todo" — i.e. Canvas
+   * hasn't itself flagged it `missing` (e.g. a Turnitin submission the planner doesn't see).
+   * Always false for events. Consumers should render this distinctly from "Missing" rather
+   * than treating it as one — see CLAUDE.md's rule against inferring Missing ourselves. */
+  pastDue: boolean;
 }
 
 function toIsoUtc(iso: string): string {
@@ -51,18 +70,18 @@ function absoluteUrl(baseUrl: string, url: string | null): string | null {
   }
 }
 
-function deadlineStatus(item: UpcomingItem, now: Date): RowStatus {
-  if (item.score !== null) return "Graded";
-  if (item.submitted === true) return "Submitted";
-  if (new Date(item.date) < now) return "Missing";
-  return "Todo";
-}
-
 function deadlineKey(item: UpcomingItem): string {
   return `${item.type}:${item.contentId}`;
 }
 
-function deadlineToRow(item: UpcomingItem, baseUrl: string, now: Date): Row {
+function deadlineToRow(
+  item: UpcomingItem,
+  baseUrl: string,
+  now: Date,
+  assignmentsByCourse: AssignmentsByCourse,
+): Row {
+  const assignment = findAssignmentForItem(item, assignmentsByCourse);
+  const status = deadlineStatus(item, assignment);
   return {
     key: deadlineKey(item),
     type: "Deadline",
@@ -72,10 +91,12 @@ function deadlineToRow(item: UpcomingItem, baseUrl: string, now: Date): Row {
     end: null,
     rooms: [],
     points: item.points,
-    status: deadlineStatus(item, now),
+    status,
     url: absoluteUrl(baseUrl, item.htmlUrl),
     canvas_ids: item.contentId !== null ? [item.contentId] : [],
     section: null,
+    submissionTypes: assignment?.submissionTypes ?? [],
+    pastDue: isPastDueUnmarked(item, status, now),
   };
 }
 
@@ -157,6 +178,8 @@ function eventsToRows(
       url: absoluteUrl(baseUrl, g.url),
       canvas_ids: g.ids,
       section: g.section,
+      submissionTypes: [],
+      pastDue: false,
     };
   });
 }
@@ -207,9 +230,10 @@ export const tool = defineTool({
 
     const deadlineItems = items.filter(isDeadline);
     const eventItems = includeEvents ? items.filter((i) => i.type === "event") : [];
+    const assignmentsByCourse = await buildAssignmentsByCourse(ctx.client, courses, deadlineItems);
 
     const rows: Row[] = [
-      ...deadlineItems.map((item) => deadlineToRow(item, ctx.config.baseUrl, now)),
+      ...deadlineItems.map((item) => deadlineToRow(item, ctx.config.baseUrl, now, assignmentsByCourse)),
       ...eventsToRows(eventItems, ctx.config.baseUrl, courseNameBySlug),
     ];
     rows.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());

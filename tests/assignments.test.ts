@@ -99,12 +99,14 @@ describe("listAssignments filters", () => {
     expect(result.map((a) => a.id)).toEqual([2]);
   });
 
-  it("computes 'missing' from due date + no submission when submission.missing is absent", async () => {
+  it("never infers 'missing' from due date + no submission — only Canvas's own submission.missing counts", async () => {
     const overdueNoSubmission = [
       { id: 5, name: "Overdue, never submitted", due_at: "2026-01-01T00:00:00Z", points_possible: 10, html_url: "https://x.test/5" },
     ];
     const result = await listAssignments(clientReturning(overdueNoSubmission), course, "missing");
-    expect(result.map((a) => a.id)).toEqual([5]);
+    expect(result.map((a) => a.id)).toEqual([]);
+    const all = await listAssignments(clientReturning(overdueNoSubmission), course, "all");
+    expect(all[0]!.missing).toBe(false);
   });
 
   it("on-paper/none assignments are submitted (and not missing) once graded, even with submitted_at null", async () => {

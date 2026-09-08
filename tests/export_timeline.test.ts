@@ -28,6 +28,8 @@ interface ExportedRow {
   status: string | null;
   url: string | null;
   canvas_ids: number[];
+  submissionTypes: string[];
+  pastDue: boolean;
 }
 
 interface ExportedTimeline {
@@ -36,12 +38,23 @@ interface ExportedTimeline {
   rows: ExportedRow[];
 }
 
-function fetchImplFor(plannerItems: unknown[], calendarEvents: unknown[] = []): FetchImpl {
+const ASSIGNMENTS_PATH_RE = /^\/api\/v1\/courses\/(\d+)\/assignments$/;
+
+function fetchImplFor(
+  plannerItems: unknown[],
+  calendarEvents: unknown[] = [],
+  assignmentsByCourseId: Record<number, unknown[]> = {},
+): FetchImpl {
   return async (input) => {
     const url = new URL(String(input));
     if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
     if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
     if (url.pathname === "/api/v1/calendar_events") return jsonResponse(calendarEvents);
+    const assignmentsMatch = ASSIGNMENTS_PATH_RE.exec(url.pathname);
+    if (assignmentsMatch) {
+      const courseId = Number(assignmentsMatch[1]);
+      return jsonResponse(assignmentsByCourseId[courseId] ?? []);
+    }
     throw new Error(`unexpected path: ${url.pathname}`);
   };
 }
@@ -50,9 +63,10 @@ async function run(
   plannerItems: unknown[],
   input: Record<string, unknown> = {},
   calendarEvents: unknown[] = [],
+  assignmentsByCourseId: Record<number, unknown[]> = {},
 ): Promise<ExportedTimeline> {
   const client = new CanvasClient(fakeConfig(), {
-    fetchImpl: fetchImplFor(plannerItems, calendarEvents),
+    fetchImpl: fetchImplFor(plannerItems, calendarEvents, assignmentsByCourseId),
     sleep: async () => {},
   });
   const result = await tool.handler(input as never, { client, config: fakeConfig() });
@@ -144,7 +158,7 @@ describe("export_timeline tool", () => {
     expect(row.url).toBe("https://x.test/courses/1/assignments/500");
   });
 
-  it("marks a past-due, unsubmitted assignment as Missing", async () => {
+  it("falls back to planner-only Todo/pastDue (never Missing) when the assignment isn't found in the fetched list", async () => {
     const plannerItems = [
       {
         plannable_type: "assignment",
@@ -156,10 +170,110 @@ describe("export_timeline tool", () => {
       },
     ];
 
+    // No assignments fixture for course 1 — the assignment lookup comes up empty, so the row
+    // falls back to planner-only fields, which never assert Missing on their own.
     const timeline = await run(plannerItems, { days: 21, start_offset_days: -3000 });
 
     const row = timeline.rows.find((r) => r.key === "assignment:501")!;
+    expect(row.status).toBe("Todo");
+    expect(row.pastDue).toBe(true);
+  });
+
+  it("treats a past-due Turnitin (external_tool) assignment as Submitted via the assignment's own pending_review state, not planner's submitted:false", async () => {
+    const plannerItems = [
+      {
+        plannable_type: "assignment",
+        plannable_id: 107985,
+        plannable_date: "2026-09-07T21:00:00Z",
+        course_id: 2,
+        plannable: { title: "Assignment 2: Introduction to Network Engineering", points_possible: 10 },
+        submissions: { submitted: false, missing: false },
+      },
+    ];
+    const assignmentsByCourseId = {
+      2: [
+        {
+          id: 107985,
+          name: "Assignment 2: Introduction to Network Engineering",
+          due_at: "2026-09-07T21:00:00Z",
+          points_possible: 10,
+          html_url: "https://x.test/courses/2/assignments/107985",
+          submission_types: ["external_tool"],
+          submission: { workflow_state: "pending_review" },
+        },
+      ],
+    };
+
+    const timeline = await run(plannerItems, { days: 21, start_offset_days: -3000 }, [], assignmentsByCourseId);
+
+    const row = timeline.rows.find((r) => r.key === "assignment:107985")!;
+    expect(row.status).toBe("Submitted");
+    expect(row.submissionTypes).toEqual(["external_tool"]);
+    expect(row.pastDue).toBe(false);
+  });
+
+  it("marks a past-due online_upload assignment with no submission (missing: false) as Todo with pastDue: true, not Missing", async () => {
+    const plannerItems = [
+      {
+        plannable_type: "assignment",
+        plannable_id: 601,
+        plannable_date: "2020-01-01T23:59:00Z",
+        course_id: 1,
+        plannable: { title: "Old homework", points_possible: 10 },
+        submissions: { submitted: false, missing: false },
+      },
+    ];
+    const assignmentsByCourseId = {
+      1: [
+        {
+          id: 601,
+          name: "Old homework",
+          due_at: "2020-01-01T23:59:00Z",
+          points_possible: 10,
+          html_url: "https://x.test/courses/1/assignments/601",
+          submission_types: ["online_upload"],
+          submission: { workflow_state: "unsubmitted", missing: false },
+        },
+      ],
+    };
+
+    const timeline = await run(plannerItems, { days: 21, start_offset_days: -3000 }, [], assignmentsByCourseId);
+
+    const row = timeline.rows.find((r) => r.key === "assignment:601")!;
+    expect(row.status).toBe("Todo");
+    expect(row.pastDue).toBe(true);
+  });
+
+  it("marks an assignment Missing when Canvas's submission.missing is true", async () => {
+    const plannerItems = [
+      {
+        plannable_type: "assignment",
+        plannable_id: 602,
+        plannable_date: "2020-01-01T23:59:00Z",
+        course_id: 1,
+        plannable: { title: "Truly missing", points_possible: 10 },
+        submissions: { submitted: false, missing: true },
+      },
+    ];
+    const assignmentsByCourseId = {
+      1: [
+        {
+          id: 602,
+          name: "Truly missing",
+          due_at: "2020-01-01T23:59:00Z",
+          points_possible: 10,
+          html_url: "https://x.test/courses/1/assignments/602",
+          submission_types: ["online_upload"],
+          submission: { workflow_state: "unsubmitted", missing: true },
+        },
+      ],
+    };
+
+    const timeline = await run(plannerItems, { days: 21, start_offset_days: -3000 }, [], assignmentsByCourseId);
+
+    const row = timeline.rows.find((r) => r.key === "assignment:602")!;
     expect(row.status).toBe("Missing");
+    expect(row.pastDue).toBe(false);
   });
 
   it("produces stable, deterministic keys across repeated calls", async () => {

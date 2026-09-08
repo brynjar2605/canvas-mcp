@@ -1,6 +1,7 @@
 import type { CanvasClient } from "./client.js";
 import type { CourseInfo } from "./courses.js";
 import type { CalendarEvent, PlannerItem } from "./types.js";
+import { listAssignments, type AssignmentSummary } from "./assignments.js";
 
 export type UpcomingItemType = "assignment" | "quiz" | "event" | "announcement" | "discussion" | "other";
 
@@ -24,6 +25,10 @@ export interface UpcomingItem {
   /** Submission score, when Canvas's planner response includes one. null for events and
    * ungraded/unscored deadlines. */
   score: number | null;
+  /** Canvas's own `submissions.missing` flag from the planner, when present. null for events
+   * and whenever the planner didn't include it — NEVER inferred from "past due + not
+   * submitted" (see `deadlineStatus`). */
+  missing: boolean | null;
   /** Section name stripped from a trailing `(Hópur N)` / `(<section name>)` suffix on the
    * event's title (see `stripSectionSuffix`). null when the title carried no such suffix, or
    * for non-event item types. */
@@ -79,6 +84,14 @@ function scoreFromPlanner(item: PlannerItem): number | null {
   return null;
 }
 
+function missingFromPlanner(item: PlannerItem): boolean | null {
+  const subs = item.submissions;
+  if (subs && typeof subs === "object" && typeof subs.missing === "boolean") {
+    return subs.missing;
+  }
+  return null;
+}
+
 const SECTION_SUFFIX_RE = /\s*\(([^()]+)\)\s*$/;
 
 /**
@@ -113,6 +126,7 @@ function plannerItemToUpcoming(item: PlannerItem, byId: Map<number, CourseInfo>)
     contentId: item.plannable_id,
     location: item.plannable.location_name ?? null,
     score: scoreFromPlanner(item),
+    missing: missingFromPlanner(item),
     section,
   };
 }
@@ -140,6 +154,7 @@ function calendarEventToUpcoming(event: CalendarEvent, byId: Map<number, CourseI
     contentId: event.id,
     location: event.location_name ?? null,
     score: null,
+    missing: null,
     section,
   };
 }
@@ -220,6 +235,86 @@ export async function getUpcoming(
   }
 
   return items.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+}
+
+export type DeadlineStatus = "Todo" | "Submitted" | "Graded" | "Missing";
+
+/** Per-course map of assignment id -> summary, built by `buildAssignmentsByCourse` and
+ * consulted by `deadlineStatus` for accurate submission state. */
+export type AssignmentsByCourse = Map<number, Map<number, AssignmentSummary>>;
+
+/**
+ * Fetches each course's assignment list (via `listAssignments`, cached by the client's own
+ * TTL) needed to resolve accurate status for the given deadline items — only courses that
+ * actually have an "assignment"-type item among `items` are fetched, and each course is
+ * fetched at most once regardless of how many assignment items it has.
+ */
+export async function buildAssignmentsByCourse(
+  client: CanvasClient,
+  courses: CourseInfo[],
+  items: UpcomingItem[],
+): Promise<AssignmentsByCourse> {
+  const neededCourseIds = new Set<number>();
+  for (const item of items) {
+    if (item.type === "assignment" && item.courseId !== null) neededCourseIds.add(item.courseId);
+  }
+  const courseById = new Map(courses.map((c) => [c.id, c]));
+  const result: AssignmentsByCourse = new Map();
+  for (const courseId of neededCourseIds) {
+    const course = courseById.get(courseId);
+    if (!course) continue;
+    const assignments = await listAssignments(client, course, "all");
+    result.set(courseId, new Map(assignments.map((a) => [a.id, a])));
+  }
+  return result;
+}
+
+/** Looks up the Canvas assignment backing an "assignment"-type planner item, if any (quiz/
+ * discussion items, and events, never match). */
+export function findAssignmentForItem(
+  item: UpcomingItem,
+  assignmentsByCourse: AssignmentsByCourse,
+): AssignmentSummary | null {
+  if (item.type !== "assignment" || item.contentId === null || item.courseId === null) return null;
+  return assignmentsByCourse.get(item.courseId)?.get(item.contentId) ?? null;
+}
+
+/**
+ * Deadline status for a planner item. Prefers the matched Canvas assignment's own submission
+ * state (fetched via the Assignments API with `include[]=submission`) over the planner's
+ * `submissions` summary — confirmed live: Canvas's planner never sets `submitted` for
+ * `external_tool` (Turnitin) assignments, even once the student has handed work in via
+ * Turnitin (`workflow_state: "pending_review"`, which `isSubmitted` in assignments.ts already
+ * treats as submitted). Falls back to the planner-only fields when there's no matching
+ * assignment — a quiz/discussion item, or an assignment id the fetched list didn't contain.
+ *
+ * `missing` is NEVER inferred from "past due and not submitted" — only from Canvas's own
+ * `missing` flag (the assignment's `submission.missing`, or the planner's
+ * `submissions.missing`). See CLAUDE.md / the rule against asserting Missing on our own
+ * heuristic instead of Canvas's.
+ */
+export function deadlineStatus(item: UpcomingItem, assignment: AssignmentSummary | null): DeadlineStatus {
+  if (assignment) {
+    if (assignment.score !== null) return "Graded";
+    if (assignment.submitted) return "Submitted";
+    if (assignment.missing || item.missing === true) return "Missing";
+    return "Todo";
+  }
+  if (item.score !== null) return "Graded";
+  if (item.submitted === true) return "Submitted";
+  if (item.missing === true) return "Missing";
+  return "Todo";
+}
+
+/**
+ * True when a deadline is overdue but its status is only "Todo" — i.e. Canvas hasn't flagged
+ * it `missing` (e.g. a Turnitin submission the planner doesn't see as submitted, or genuinely
+ * unaddressed work Canvas simply hasn't marked yet). Callers should surface this distinctly
+ * ("past due, not marked submitted in Canvas") rather than asserting a status Canvas itself
+ * doesn't assert.
+ */
+export function isPastDueUnmarked(item: UpcomingItem, status: DeadlineStatus, now: Date): boolean {
+  return status === "Todo" && new Date(item.date) < now;
 }
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

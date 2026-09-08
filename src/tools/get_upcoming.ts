@@ -2,11 +2,16 @@ import { z } from "zod";
 import { defineTool } from "./_types.js";
 import { currentCourses, resolveCourse } from "../canvas/courses.js";
 import {
+  buildAssignmentsByCourse,
   DEFAULT_UPCOMING_DAYS,
+  deadlineStatus,
+  findAssignmentForItem,
   formatReykjavikDay,
   formatReykjavikTimeRange,
   getUpcoming,
+  isPastDueUnmarked,
   parseEventTitle,
+  type AssignmentsByCourse,
   type UpcomingItem,
   type UpcomingItemType,
 } from "../canvas/calendar.js";
@@ -22,18 +27,44 @@ function isDeadline(item: UpcomingItem): boolean {
   return DEADLINE_TYPES.has(item.type);
 }
 
-function formatDeadline(item: UpcomingItem): string {
+/**
+ * Renders a deadline's status text. Prefers the matched Canvas assignment's own submission
+ * state over the planner's `submitted` flag (see `deadlineStatus` in calendar.ts — confirmed
+ * live: the planner never sets `submitted` for Turnitin/`external_tool` assignments even once
+ * handed in). A past-due item that Canvas hasn't itself flagged `missing` is called out as
+ * such rather than asserted Missing on our own heuristic.
+ */
+function formatDeadline(item: UpcomingItem, assignmentsByCourse: AssignmentsByCourse, now: Date): string {
   const course = item.courseSlug ? `[${item.courseSlug}] ` : "";
   const points = item.points !== null ? ` — ${item.points} pts` : "";
-  let status = "";
-  if (item.submitted === true) status = " — submitted ✓";
-  else if (item.submitted === false) status = " — not submitted";
+  const assignment = findAssignmentForItem(item, assignmentsByCourse);
+  const status = deadlineStatus(item, assignment);
+  const known = assignment !== null || item.submitted !== null || item.score !== null;
+  let statusText = "";
+  if (known) {
+    switch (status) {
+      case "Graded":
+        statusText = " — graded ✓";
+        break;
+      case "Submitted":
+        statusText = " — submitted ✓";
+        break;
+      case "Missing":
+        statusText = " — MISSING";
+        break;
+      case "Todo":
+        statusText = isPastDueUnmarked(item, status, now)
+          ? " — past due, not marked submitted in Canvas"
+          : " — not submitted";
+        break;
+    }
+  }
   const idPart =
     item.contentId !== null && (item.type === "assignment" || item.type === "quiz")
       ? ` — assignment_id ${item.contentId}`
       : "";
   const time = formatReykjavikTimeRange(item.date, item.endDate);
-  return `- ${time} ${course}${item.type}: ${item.title}${points}${status}${idPart}`;
+  return `- ${time} ${course}${item.type}: ${item.title}${points}${statusText}${idPart}`;
 }
 
 function formatOther(item: UpcomingItem): string {
@@ -134,6 +165,7 @@ export const tool = defineTool({
     const capped = items.length > MAX_ITEMS;
     const displayItems = capped ? items.slice(0, MAX_ITEMS) : items;
 
+    const assignmentsByCourse = await buildAssignmentsByCourse(ctx.client, courses, items);
     const now = new Date();
     const today = formatReykjavikDay(now.toISOString());
     const tomorrow = formatReykjavikDay(new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString());
@@ -154,7 +186,9 @@ export const tool = defineTool({
     const sections: string[] = [summary];
     for (const day of dayOrder) {
       const dayItems = groups.get(day)!;
-      const deadlineLines = dayItems.filter(isDeadline).map(formatDeadline);
+      const deadlineLines = dayItems
+        .filter(isDeadline)
+        .map((item) => formatDeadline(item, assignmentsByCourse, now));
       const eventItems = dayItems.filter((i) => i.type === "event");
       const otherLines = dayItems.filter((i) => !isDeadline(i) && i.type !== "event").map(formatOther);
       const eventLines = includeEvents ? formatEvents(eventItems) : [];

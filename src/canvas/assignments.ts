@@ -82,13 +82,18 @@ function isSubmitted(a: Assignment): boolean {
   return a.submission?.score != null;
 }
 
-function isMissing(a: Assignment, now: Date): boolean {
-  if (typeof a.submission?.missing === "boolean") return a.submission.missing;
-  if (!a.due_at) return false;
-  return new Date(a.due_at) < now && !isSubmitted(a);
+/**
+ * "Missing" is ONLY ever Canvas's own `submission.missing` flag — never inferred from "past
+ * due and not submitted". That heuristic used to false-positive on e.g. Turnitin
+ * (`external_tool`) assignments: Canvas's planner/assignment `submitted` never goes true for
+ * those even once handed in (`workflow_state: "pending_review"`), so the old fallback wrongly
+ * called a submitted assignment Missing. When Canvas hasn't told us, we don't guess.
+ */
+function isMissing(a: Assignment): boolean {
+  return a.submission?.missing === true;
 }
 
-function toSummary(a: Assignment, course: CourseInfo, now: Date): AssignmentSummary {
+function toSummary(a: Assignment, course: CourseInfo): AssignmentSummary {
   return {
     id: a.id,
     courseId: course.id,
@@ -99,7 +104,7 @@ function toSummary(a: Assignment, course: CourseInfo, now: Date): AssignmentSumm
     submitted: isSubmitted(a),
     score: a.submission?.score ?? null,
     grade: a.submission?.grade ?? null,
-    missing: isMissing(a, now),
+    missing: isMissing(a),
     late: a.submission?.late ?? false,
     htmlUrl: a.html_url,
     submissionTypes: a.submission_types ?? [],
@@ -161,7 +166,7 @@ export async function listAssignments(
 ): Promise<AssignmentSummary[]> {
   const now = new Date();
   const raw = await fetchAssignments(client, course);
-  const summaries = raw.map((a) => toSummary(a, course, now));
+  const summaries = raw.map((a) => toSummary(a, course));
   const filtered = applyFilter(summaries, filter, days, now);
   return filtered.sort((a, b) => {
     if (a.dueAt === null && b.dueAt === null) return 0;
@@ -210,11 +215,10 @@ export async function getAssignment(
   course: CourseInfo,
   assignmentId: number,
 ): Promise<AssignmentDetail> {
-  const now = new Date();
   const a = await client.get<Assignment>(`/api/v1/courses/${course.id}/assignments/${assignmentId}`, {
     include: ["submission"],
   });
-  const summary = toSummary(a, course, now);
+  const summary = toSummary(a, course);
   return {
     ...summary,
     // The verifier param is a one-time per-user file-access token with no value to the LLM
