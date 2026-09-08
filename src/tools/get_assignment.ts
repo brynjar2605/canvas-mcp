@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { defineTool } from "./_types.js";
 import { resolveCourse } from "../canvas/courses.js";
-import { getAssignment } from "../canvas/assignments.js";
+import { formatScoreWithGrade, getAssignment, isInClassOnly } from "../canvas/assignments.js";
 import { formatReykjavikDateTime } from "../canvas/calendar.js";
 
 export const tool = defineTool({
@@ -26,15 +26,25 @@ export const tool = defineTool({
     lines.push(`- Points: ${a.pointsPossible ?? "none"}`);
     lines.push(`- Submission types: ${a.submissionTypes.length > 0 ? a.submissionTypes.join(", ") : "none"}`);
 
-    let status = a.missing ? "MISSING" : a.submitted ? "submitted" : "not submitted";
+    // "submitted" would misleadingly imply an online submission — this RU pattern (in-class
+    // work graded with no online submission_type) was graded in class instead.
+    let statusBase: string;
+    if (a.missing) {
+      statusBase = "MISSING";
+    } else if (a.submitted && isInClassOnly(a.submissionTypes) && a.score !== null) {
+      statusBase = "graded in class";
+    } else if (a.submitted) {
+      statusBase = "submitted";
+    } else {
+      statusBase = "not submitted";
+    }
+    let status = statusBase;
     if (a.submittedAt) status += ` (${formatReykjavikDateTime(a.submittedAt)})`;
     if (a.late) status += ", late";
     lines.push(`- Status: ${status}`);
 
     if (a.score !== null) {
-      const scoreText = `${a.score}${a.pointsPossible !== null ? `/${a.pointsPossible}` : ""}`;
-      const gradePart = a.grade && a.grade !== scoreText ? ` (${a.grade})` : "";
-      lines.push(`- Score: ${scoreText}${gradePart}`);
+      lines.push(`- Score: ${formatScoreWithGrade(a.score, a.pointsPossible, a.grade)}`);
     }
     lines.push(`- Link: ${a.htmlUrl}`);
 
@@ -49,10 +59,12 @@ export const tool = defineTool({
     }
 
     if (a.attachments && a.attachments.length > 0) {
+      // The description above already links each of these (as a markdown link) — this section
+      // exists to surface file_id (for download_file), not to repeat the url a second time.
       lines.push("", "## Attachments");
       for (const att of a.attachments) {
-        const fileIdPart = att.fileId !== null ? ` (file_id ${att.fileId})` : "";
-        lines.push(`- [${att.name}](${att.url})${fileIdPart}`);
+        const fileIdPart = att.fileId !== null ? ` — file_id ${att.fileId}` : "";
+        lines.push(`- ${att.name}${fileIdPart}`);
       }
     }
 

@@ -49,6 +49,27 @@ export const DEFAULT_UPCOMING_DAYS = 30;
 
 const SUBMITTED_WORKFLOW_STATES = new Set(["submitted", "graded", "pending_review"]);
 
+/** RU regularly grades "none"/"on_paper" assignments (in-class work, no online submission) with a score. */
+export function isInClassOnly(submissionTypes: string[] | undefined): boolean {
+  if (!submissionTypes || submissionTypes.length === 0) return false;
+  return submissionTypes.every((t) => t === "none" || t === "on_paper");
+}
+
+/**
+ * Formats a score with its Canvas `grade`, dropping the parenthesised grade
+ * when it's redundant with the score itself — Canvas often sets `grade` to
+ * just the bare score ("2" for a 2/2 assignment), which previously rendered
+ * as the useless "Score: 2/2 (2)". A grade is shown only when it adds
+ * information the raw score/points didn't already carry (a letter grade, a
+ * percentage, etc).
+ */
+export function formatScoreWithGrade(score: number, pointsPossible: number | null, grade: string | null): string {
+  const rawScoreText = `${score}${pointsPossible !== null ? `/${pointsPossible}` : ""}`;
+  const gradeRedundant = grade !== null && (grade === rawScoreText || grade === String(score));
+  const gradePart = grade && !gradeRedundant ? ` (${grade})` : "";
+  return `${rawScoreText}${gradePart}`;
+}
+
 /**
  * "Submitted" is derived from `workflow_state` (or a non-null score), NEVER
  * from `submitted_at`. Confirmed live: RU's `on_paper`/`none` submission_types
@@ -196,7 +217,10 @@ export async function getAssignment(
   const summary = toSummary(a, course, now);
   return {
     ...summary,
-    descriptionMarkdown: htmlToMarkdown(a.description),
+    // The verifier param is a one-time per-user file-access token with no value to the LLM
+    // (file access goes through file_id + download_file instead) — strip it from every URL
+    // in the rendered description, not just the attachment links parsed out separately below.
+    descriptionMarkdown: stripVerifierParams(htmlToMarkdown(a.description)),
     submissionTypes: a.submission_types ?? [],
     rubric: toRubricItems(a.rubric),
     attachments: extractAttachments(a.description),

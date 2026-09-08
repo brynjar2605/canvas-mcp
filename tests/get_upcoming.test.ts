@@ -76,6 +76,63 @@ describe("get_upcoming tool", () => {
     expect(result).not.toContain("https://");
   });
 
+  it("parses RU's <ROOM> - <course name> - <kind> event titles and merges sections by kind, not raw title", async () => {
+    const plannerItems = [
+      {
+        plannable_type: "calendar_event",
+        plannable_id: 70,
+        plannable_date: "2026-09-14T08:30:00Z",
+        course_id: 2,
+        plannable: {
+          title: "M120 - Tölvusamskipti - Dæmatímar",
+          start_at: "2026-09-14T08:30:00Z",
+          end_at: "2026-09-14T10:10:00Z",
+          location_name: "M120",
+        },
+      },
+      {
+        plannable_type: "calendar_event",
+        plannable_id: 71,
+        plannable_date: "2026-09-14T08:30:00Z",
+        course_id: 2,
+        plannable: {
+          title: "M121 - Tölvusamskipti - Dæmatímar",
+          start_at: "2026-09-14T08:30:00Z",
+          end_at: "2026-09-14T10:10:00Z",
+          location_name: "M121",
+        },
+      },
+      {
+        plannable_type: "calendar_event",
+        plannable_id: 72,
+        plannable_date: "2026-09-14T10:10:00Z",
+        course_id: 1,
+        plannable: {
+          title: "V108 - Nethernaður og glæpastarfsemi - Fyrirlestrar",
+          start_at: "2026-09-14T10:10:00Z",
+          end_at: "2026-09-14T11:50:00Z",
+          location_name: "V108",
+        },
+      },
+    ];
+    const fetchImpl: FetchImpl = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
+      if (url.pathname === "/api/v1/planner/items") return jsonResponse(plannerItems);
+      if (url.pathname === "/api/v1/calendar_events") return jsonResponse([]);
+      throw new Error(`unexpected path: ${url.pathname}`);
+    };
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+
+    const result = await tool.handler({ days: 14 }, { client, config: fakeConfig() });
+
+    expect(result).toContain("🕘 08:30–10:10 tsam Dæmatímar (M120, M121)");
+    expect(result).toContain("🕘 10:10–11:50 thyd Fyrirlestrar (V108)");
+    // The room must not also linger inside the kind text or be duplicated.
+    expect(result).not.toContain("M120 - Tölvusamskipti - Dæmatímar (M120");
+    expect(result).not.toContain("M120 - Tölvusamskipti");
+  });
+
   it("include_events: false drops the calendar noise and adjusts the summary", async () => {
     const plannerItems = [
       {

@@ -96,6 +96,11 @@ function assignFilePaths(files: FileEntry[], manifest: Manifest, dir: string): M
     const existing = manifest.files[String(f.id)];
     if (existing) {
       result.set(f.id, existing.path);
+      // A sticky path is claimed by this id whether or not the file is
+      // currently on disk — otherwise a user who deletes a synced file frees
+      // its name for a *new* same-named Canvas file, and both ids then race
+      // onto the same path.
+      claimedByOnDiskEntry.set(existing.path, f.id);
     } else {
       remaining.push(f);
     }
@@ -142,10 +147,19 @@ function assignFilePaths(files: FileEntry[], manifest: Manifest, dir: string): M
  */
 function assignPagePaths(pages: PageSummary[]): Map<string, string> {
   const result = new Map<string, string>();
-  pages.forEach((p, i) => {
+  const taken = new Set<string>();
+  // Assigned in url order (not listing order) so the tie-break below is
+  // stable across runs even if Canvas reorders the listing.
+  const ordered = [...pages].sort((a, b) => a.url.localeCompare(b.url));
+  for (const [i, p] of ordered.entries()) {
     const slug = safeFilename(p.url, `page-${i + 1}`);
-    result.set(p.url, join("pages", `${slug}.md`));
-  });
+    let rel = join("pages", `${slug}.md`);
+    for (let n = 2; taken.has(rel); n++) {
+      rel = join("pages", `${slug} (${n}).md`);
+    }
+    taken.add(rel);
+    result.set(p.url, rel);
+  }
   return result;
 }
 

@@ -118,6 +118,14 @@ describe("getConfig", () => {
     expect(cfg.baseUrl).toBe("https://reykjavik.instructure.com");
   });
 
+  it("treats CURRENT_SEMESTER as optional (null when unset)", () => {
+    process.env.CANVAS_TOKEN = "test-token";
+    process.env.SCHOOL_ROOT = "/tmp/school";
+    delete process.env.CURRENT_SEMESTER;
+    const cfg = getConfig();
+    expect(cfg.currentSemester).toBeNull();
+  });
+
   it("throws ConfigError when CURRENT_SEMESTER is not an integer", () => {
     process.env.CANVAS_TOKEN = "test-token";
     process.env.SCHOOL_ROOT = "/tmp/school";

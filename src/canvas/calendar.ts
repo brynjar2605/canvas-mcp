@@ -211,3 +211,30 @@ export function formatReykjavikTimeRange(startIso: string, endIso?: string | nul
   if (!endIso) return start;
   return `${start}–${timeOnly(endIso)}`;
 }
+
+export interface ParsedEventTitle {
+  /** e.g. "M120". null when the title doesn't follow the room-prefixed convention. */
+  room: string | null;
+  /** e.g. "Dæmatímar" / "Fyrirlestrar" — or the whole original title, when it didn't match. */
+  kind: string;
+}
+
+/** Room codes seen live: one to three letters followed by 2-4 digits ("M120", "V104", "V206"). */
+const EVENT_TITLE_RE = /^([A-Z]{1,3}\d{2,4})\s*-\s*(.+?)\s*-\s*(.+)$/;
+
+/**
+ * Parses RU's calendar event title convention, `<ROOM> - <course name> - <kind>`
+ * (e.g. "M120 - Tölvusamskipti - Dæmatímar"), into the room and the kind of
+ * session (lecture/lab/etc). The course name in the middle is discarded —
+ * callers already have it via the event's `courseSlug`. Falls back to
+ * `{ room: null, kind: title }` for titles that don't follow the convention
+ * (plain "Dæmatímar", "Fyrirlestur", or anything else Canvas hands back).
+ */
+export function parseEventTitle(title: string): ParsedEventTitle {
+  const trimmed = title.trim();
+  const m = EVENT_TITLE_RE.exec(trimmed);
+  if (m) {
+    return { room: m[1]!.trim(), kind: m[3]!.trim() };
+  }
+  return { room: null, kind: trimmed };
+}

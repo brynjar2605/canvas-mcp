@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { CanvasClient, type FetchImpl } from "../src/canvas/client.js";
-import { formatReykjavikDateTime, formatReykjavikDay, formatReykjavikTimeRange, getUpcoming } from "../src/canvas/calendar.js";
+import {
+  formatReykjavikDateTime,
+  formatReykjavikDay,
+  formatReykjavikTimeRange,
+  getUpcoming,
+  parseEventTitle,
+} from "../src/canvas/calendar.js";
 import type { CourseInfo } from "../src/canvas/courses.js";
 
 const courses: CourseInfo[] = [
@@ -41,6 +47,23 @@ describe("formatReykjavikTimeRange", () => {
   it("renders just the start time when there is no end", () => {
     expect(formatReykjavikTimeRange("2026-09-14T08:30:00Z", null)).toBe("08:30");
     expect(formatReykjavikTimeRange("2026-09-14T08:30:00Z")).toBe("08:30");
+  });
+});
+
+describe("parseEventTitle", () => {
+  it("splits RU's <ROOM> - <course name> - <kind> convention", () => {
+    expect(parseEventTitle("M120 - Tölvusamskipti - Dæmatímar")).toEqual({ room: "M120", kind: "Dæmatímar" });
+    expect(parseEventTitle("V108 - Nethernaður og glæpastarfsemi - Fyrirlestrar")).toEqual({
+      room: "V108",
+      kind: "Fyrirlestrar",
+    });
+    expect(parseEventTitle("V104 - Þýðendur - Dæmatímar")).toEqual({ room: "V104", kind: "Dæmatímar" });
+  });
+
+  it("falls back to the whole title as kind, with no room, when the title doesn't match", () => {
+    expect(parseEventTitle("Dæmatímar")).toEqual({ room: null, kind: "Dæmatímar" });
+    expect(parseEventTitle("Fyrirlestur")).toEqual({ room: null, kind: "Fyrirlestur" });
+    expect(parseEventTitle("Q&A session")).toEqual({ room: null, kind: "Q&A session" });
   });
 });
 

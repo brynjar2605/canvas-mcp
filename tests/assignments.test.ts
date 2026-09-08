@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CanvasClient } from "../src/canvas/client.js";
-import { getAssignment, listAssignments } from "../src/canvas/assignments.js";
+import { formatScoreWithGrade, getAssignment, isInClassOnly, listAssignments } from "../src/canvas/assignments.js";
 import type { CourseInfo } from "../src/canvas/courses.js";
 
 const course: CourseInfo = {
@@ -202,5 +202,53 @@ describe("getAssignment", () => {
     expect(detail.rubric).toEqual([]);
     expect(detail.attachments).toEqual([]);
     expect(detail.descriptionMarkdown).toBe("");
+  });
+
+  it("strips verifier params from every URL in the description markdown, not just parsed attachments", async () => {
+    const raw = {
+      id: 45,
+      name: "Reading",
+      due_at: null,
+      points_possible: null,
+      html_url: "https://x.test/45",
+      description:
+        '<p>See <a href="https://x.test/files/1/download?verifier=abc&amp;wrap=1">one</a> and ' +
+        '<a href="https://x.test/files/2/download?verifier=def">two</a>.</p>',
+    };
+    const detail = await getAssignment(clientReturning(raw), course, 45);
+    expect(detail.descriptionMarkdown).not.toContain("verifier");
+    expect(detail.descriptionMarkdown).toContain("[one](https://x.test/files/1/download?wrap=1)");
+    expect(detail.descriptionMarkdown).toContain("[two](https://x.test/files/2/download)");
+  });
+});
+
+describe("isInClassOnly", () => {
+  it("is true only when every submission type is 'none' or 'on_paper'", () => {
+    expect(isInClassOnly(["on_paper"])).toBe(true);
+    expect(isInClassOnly(["none"])).toBe(true);
+    expect(isInClassOnly(["none", "on_paper"])).toBe(true);
+    expect(isInClassOnly(["online_upload"])).toBe(false);
+    expect(isInClassOnly(["none", "online_upload"])).toBe(false);
+    expect(isInClassOnly([])).toBe(false);
+    expect(isInClassOnly(undefined)).toBe(false);
+  });
+});
+
+describe("formatScoreWithGrade", () => {
+  it("drops the grade when it's just the bare score restated (the observed 'Score: 2/2 (2)' bug)", () => {
+    expect(formatScoreWithGrade(2, 2, "2")).toBe("2/2");
+  });
+
+  it("drops the grade when it equals the full score/possible text", () => {
+    expect(formatScoreWithGrade(8, 10, "8/10")).toBe("8/10");
+  });
+
+  it("keeps a grade that adds information (letter grade, percentage, ...)", () => {
+    expect(formatScoreWithGrade(8, 10, "B")).toBe("8/10 (B)");
+    expect(formatScoreWithGrade(9, 10, "90%")).toBe("9/10 (90%)");
+  });
+
+  it("renders just the score when pointsPossible or grade is null", () => {
+    expect(formatScoreWithGrade(5, null, null)).toBe("5");
   });
 });

@@ -22,7 +22,11 @@ export interface Scored<T extends Candidate = Candidate> {
   score: number;
 }
 
-const KIND_ORDER: Record<CandidateKind, number> = {
+/** Tie-break ordering when candidates score equally: files, then module items, then pages.
+ * Exported so callers that merge/re-sort ranked results (e.g. search_materials.ts, which
+ * collapses a file/page and the module item(s) pointing at it into one line) can apply the
+ * same ordering after their own merge step. */
+export const KIND_ORDER: Record<CandidateKind, number> = {
   file: 0,
   module_item: 1,
   page: 2,

@@ -426,6 +426,25 @@ describe("syncCourse — sticky duplicate file naming (P1-4)", () => {
     expect(third.skipped).toBe(1);
     expect(readFileSync(join(dir, "files", "slides.pdf"), "utf-8")).toBe("bytes-4");
   });
+
+  it("a tracked file the user deleted still holds its name, so a new same-named file cannot race onto it", async () => {
+    const dup = (id: number): CanvasFile => pdfFile(id, "slides.pdf");
+    const state: FullState = { files: [dup(4)] };
+    const schoolRoot = root.get();
+    const dir = canvasDir("thyd", 5, { schoolRoot, baseUrl: "x", token: "t", currentSemester: 5 });
+
+    await syncCourse(makeFullClient(1, state), COURSE);
+    rmSync(join(dir, "files", "slides.pdf")); // the user deletes their local copy
+
+    state.files = [dup(4), dup(9)];
+    const second = await syncCourse(makeFullClient(1, state), COURSE);
+
+    // Two ids must never resolve to one path: id 4 keeps the plain name it is
+    // still tracked at, id 9 is suffixed. Both land intact, nothing fails.
+    expect(second.failed).toEqual([]);
+    expect(readFileSync(join(dir, "files", "slides.pdf"), "utf-8")).toBe("bytes-4");
+    expect(readFileSync(join(dir, "files", "slides (9).pdf"), "utf-8")).toBe("bytes-9");
+  });
 });
 
 describe("syncCourse — preserves a locally-edited file instead of overwriting it (P1-6)", () => {
@@ -499,6 +518,35 @@ describe("syncCourse — pages named by url slug (lead-live: triplicate titles)"
     expect(second.added).toEqual([]);
     expect(second.updated).toEqual([]);
     expect(second.skipped).toBe(3);
+  });
+
+  it("gives two page urls that sanitize to the same filename separate files instead of overwriting", async () => {
+    const pages: RawPage[] = [
+      { url: "a:b", title: "One", updated_at: "2026-01-01T00:00:00Z" },
+      { url: "a_b", title: "Two", updated_at: "2026-01-01T00:00:00Z" },
+    ];
+    const pageBodies: Record<string, RawPageBody> = {
+      "a:b": { url: "a:b", title: "One", body: "<p>one</p>", updated_at: "2026-01-01T00:00:00Z" },
+      a_b: { url: "a_b", title: "Two", body: "<p>two</p>", updated_at: "2026-01-01T00:00:00Z" },
+    };
+    const state: FullState = { files: [], pages, pageBodies };
+    const schoolRoot = root.get();
+    const dir = canvasDir("thyd", 5, { schoolRoot, baseUrl: "x", token: "t", currentSemester: 5 });
+
+    const first = await syncCourse(makeFullClient(1, state), COURSE);
+    expect(first.added.sort()).toEqual([join("pages", "a_b (2).md"), join("pages", "a_b.md")].sort());
+    const bodies = [
+      readFileSync(join(dir, "pages", "a_b.md"), "utf-8"),
+      readFileSync(join(dir, "pages", "a_b (2).md"), "utf-8"),
+    ].join("\n");
+    expect(bodies).toContain("one");
+    expect(bodies).toContain("two");
+
+    // Deterministic across runs: nothing is rewritten the second time.
+    const second = await syncCourse(makeFullClient(1, state), COURSE);
+    expect(second.added).toEqual([]);
+    expect(second.updated).toEqual([]);
+    expect(second.skipped).toBe(2);
   });
 });
 

@@ -6,6 +6,7 @@ import {
   formatReykjavikDay,
   formatReykjavikTimeRange,
   getUpcoming,
+  parseEventTitle,
   type UpcomingItem,
   type UpcomingItemType,
 } from "../canvas/calendar.js";
@@ -41,25 +42,21 @@ function formatOther(item: UpcomingItem): string {
   return `- ${time} ${course}${item.type}: ${item.title}`;
 }
 
-/** Splits a trailing "(ROOM)" off an event title, e.g. "Dæmatímar (M120)" ->
- * { base: "Dæmatímar", room: "M120" }. Falls back to no room when there's no
- * parenthesised suffix, or when Canvas's own `location_name` already gives one. */
-function extractRoom(title: string): { base: string; room: string | null } {
-  const m = /^(.*?)\s*\(([^()]+)\)\s*$/.exec(title.trim());
-  if (m) return { base: m[1]!.trim(), room: m[2]!.trim() };
-  return { base: title.trim(), room: null };
-}
-
 /**
- * Collapses events that share (course, start, end, base-title) — e.g. the
- * same "Dæmatímar" slot taught to several sections at the same time — into
- * one compact line listing all their rooms, dropping the html_url entirely.
+ * Collapses events that share (courseSlug, start, end, kind) — e.g. the same
+ * "Dæmatímar" slot taught to several sections at the same time — into one
+ * compact line listing all their rooms, dropping the html_url entirely.
+ * Title parsing (via `parseEventTitle`) strips RU's `<ROOM> - <course name> -
+ * <kind>` convention down to just the kind, so "M120 - Tölvusamskipti -
+ * Dæmatímar" and "M121 - Tölvusamskipti - Dæmatímar" at the same time merge
+ * into "Dæmatímar (M120, M121)" instead of listing each section separately
+ * with its room repeated in both the title and the trailing parenthesis.
  */
 function formatEvents(items: UpcomingItem[]): string[] {
   interface Group {
     time: string;
     courseSlug: string | null;
-    base: string;
+    kind: string;
     rooms: Set<string>;
   }
   const groups = new Map<string, Group>();
@@ -67,22 +64,23 @@ function formatEvents(items: UpcomingItem[]): string[] {
 
   for (const item of items) {
     const time = formatReykjavikTimeRange(item.date, item.endDate);
-    const parsed = item.location ? { base: item.title.trim(), room: item.location } : extractRoom(item.title);
-    const key = `${item.courseSlug ?? ""}|${time}|${parsed.base}`;
+    const parsed = parseEventTitle(item.title);
+    const room = parsed.room ?? item.location;
+    const key = `${item.courseSlug ?? ""}|${time}|${parsed.kind}`;
     let g = groups.get(key);
     if (!g) {
-      g = { time, courseSlug: item.courseSlug, base: parsed.base, rooms: new Set() };
+      g = { time, courseSlug: item.courseSlug, kind: parsed.kind, rooms: new Set() };
       groups.set(key, g);
       order.push(key);
     }
-    if (parsed.room) g.rooms.add(parsed.room);
+    if (room) g.rooms.add(room);
   }
 
   return order.map((key) => {
     const g = groups.get(key)!;
     const course = g.courseSlug ? `${g.courseSlug} ` : "";
     const rooms = g.rooms.size > 0 ? ` (${[...g.rooms].join(", ")})` : "";
-    return `🕘 ${g.time} ${course}${g.base}${rooms}`;
+    return `🕘 ${g.time} ${course}${g.kind}${rooms}`;
   });
 }
 
