@@ -104,3 +104,31 @@ Submissions, discussions posting, quizzes content, groups, background launchd sy
   so the user can fill gaps. Auto-match rules: folder name (lowercased, accents stripped) equals slug, OR equals an
   accent-stripped word of the course name (`styrikerfi` ~ `Stýrikerfi`, `gervigreind` ~ `Gervigreind`).
 - User id <redacted>. `/api/v1/users/self` works → use as auth smoke test.
+
+## Live findings round 2 (2026-09-08, after Phase 2 launch) — MUST be applied in review
+1. **Files tab hidden for students in 4/5 courses** (THYD, VEFT, POSH, MAPP): `GET /courses/:id/files` and
+   `GET /folders/:id/files` → 403 `{"status":"unauthorized"}`. Only TSAM lists files directly.
+   BUT: `GET /courses/:id/folders` works everywhere (gives ids + `full_name`), and `GET /api/v1/files/:id` works for any
+   file the student can reach (returns display_name, folder_id, size, updated_at, url, locked_for_user).
+   → `listAllFiles(client, courseId)` must: try `/courses/:id/files`; on 403 fall back to a **discovered set**:
+   every module item with `type === "File"` (`content_id` = file id) + every `/courses/:id/files/:id` or `/files/:id`
+   link found in page bodies and assignment descriptions; fetch each via `/api/v1/files/:id` (dedupe, small
+   concurrency), then join with the folders list for `folderPath`. Add `source: "listing" | "discovered"` to
+   FileEntry so tools can tell the user the list may be incomplete. Sync/search must work in both modes.
+2. Folder `full_name` format confirmed: `course files/Slides`, `course files/TEMPLATE FILES/Images/Icons` (150 junk
+   icons). Skip any folder path whose first segment is `TEMPLATE FILES` in sync and search.
+3. Module items with `include[]=content_details` give `content_details.display_name` and `url` =
+   `/api/v1/courses/:id/files/:fid` for File items. `items` was present for modules of 6–9 items; still keep the
+   `/modules/:id/items` fallback when `items` is absent.
+4. Planner items already include `calendar_event` (lectures: "V104 - Þýðendur - Fyrirlestrar", dæmatímar) and
+   `announcement` types, so `/calendar_events` is only a redundancy; dedupe on (type, id). 65 planner items in Sept.
+   `submissions` is `false` for non-submittables, else an object with `submitted`/`graded`/`missing`.
+5. Grades: `grades.current_score` is null for every enrollment, and `include[]=total_scores` gives null too — RU hides
+   course totals from students. `get_grades` must say "Course totals hidden by RU — showing per-assignment scores
+   instead" and fall back to summing graded assignments (score / points_possible) per course.
+6. Assignments use `submission_types: ["none"]` / `["on_paper"]` with `workflow_state: "graded"` and `submitted_at:
+   null` — so "submitted" must be derived as `submission.workflow_state in (submitted, graded, pending_review)` OR
+   `score != null`, NOT from `submitted_at`.
+7. Announcements need `start_date`; POSH has 3 since Aug, THYD 0. Body in `message` (HTML).
+8. Pages exist in every course but are mostly RU template pages (`course-home-page`, `template-information`,
+   `assessment`, `teaching-methods`). Still sync them; they're small.
