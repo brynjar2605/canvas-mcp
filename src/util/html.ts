@@ -95,3 +95,36 @@ export function htmlToMarkdown(html: string | null | undefined): string {
   const service = getService();
   return service.turndown(trimmed).trim();
 }
+
+const HTML_ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&apos;": "'",
+};
+
+/**
+ * Decodes the small set of named/numeric HTML entities Canvas actually emits
+ * in raw attribute values (e.g. `href="...?verifier=x&amp;wrap=1"` — the
+ * `&amp;` is literal HTML-escaping of the query string, not a real `&amp;`
+ * in the URL). Not a full HTML-entity decoder; good enough for hrefs and
+ * plain-text titles pulled out of rich-text bodies with a regex.
+ */
+export function decodeHtmlEntities(s: string): string {
+  return s.replace(/&(?:amp|lt|gt|quot|#39|apos);/g, (m) => HTML_ENTITIES[m] ?? m);
+}
+
+/**
+ * Strips Canvas's one-time `verifier` query param wherever it appears in a
+ * URL, or in a blob of text containing URLs (e.g. a markdown-rendered
+ * announcement body). It's a per-user file-access token with no value to the
+ * LLM — file access goes through `file_id` + `download_file` instead — and
+ * it just adds noise to displayed links.
+ */
+export function stripVerifierParams(text: string): string {
+  return text
+    .replace(/([?&])verifier=[^&\s)]*&/g, "$1") // verifier in the middle: drop it, keep the following "&"
+    .replace(/[?&]verifier=[^&\s)]*/g, ""); // verifier at the end (or alone): drop it and its leading separator
+}

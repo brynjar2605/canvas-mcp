@@ -1,7 +1,7 @@
 import type { CanvasClient } from "./client.js";
 import type { CourseInfo } from "./courses.js";
 import type { Announcement } from "./types.js";
-import { htmlToMarkdown } from "../util/html.js";
+import { htmlToMarkdown, stripVerifierParams } from "../util/html.js";
 
 export interface AnnouncementSummary {
   id: number;
@@ -41,7 +41,9 @@ function toSummary(a: Announcement, byId: Map<number, CourseInfo>): Announcement
     courseId: course.id,
     title: a.title,
     postedAt: a.posted_at ?? null,
-    bodyMarkdown: htmlToMarkdown(a.message),
+    // Strip Canvas's one-time verifier token from any file links in the body —
+    // it's per-user, expires, and just adds noise to what the LLM displays.
+    bodyMarkdown: stripVerifierParams(htmlToMarkdown(a.message)),
     htmlUrl: a.html_url,
   };
 }

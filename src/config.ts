@@ -27,7 +27,8 @@ export interface Config {
   baseUrl: string;
   token: string;
   schoolRoot: string;
-  currentSemester: number;
+  /** Optional fallback semester (önn) when a course has no derivable term. */
+  currentSemester: number | null;
 }
 
 export class ConfigError extends Error {
@@ -65,17 +66,17 @@ export function getConfig(): Config {
     );
   }
 
-  const currentSemesterRaw = process.env.CURRENT_SEMESTER;
-  if (!currentSemesterRaw || currentSemesterRaw.trim().length === 0) {
-    throw new ConfigError(
-      "CURRENT_SEMESTER is missing. Set it in your .env file (e.g. CURRENT_SEMESTER=5)."
-    );
-  }
-  const currentSemester = Number(currentSemesterRaw);
-  if (!Number.isFinite(currentSemester) || !Number.isInteger(currentSemester)) {
-    throw new ConfigError(
-      `CURRENT_SEMESTER must be an integer, got: ${JSON.stringify(currentSemesterRaw)}`
-    );
+  // Optional fallback only: the semester is normally derived from each course's term
+  // (see canvas/courses.ts semesterFromTerm). Used when a course has no derivable term.
+  const currentSemesterRaw = process.env.CURRENT_SEMESTER?.trim();
+  let currentSemester: number | null = null;
+  if (currentSemesterRaw) {
+    currentSemester = Number(currentSemesterRaw);
+    if (!Number.isFinite(currentSemester) || !Number.isInteger(currentSemester)) {
+      throw new ConfigError(
+        `CURRENT_SEMESTER must be an integer if set, got: ${JSON.stringify(currentSemesterRaw)}`
+      );
+    }
   }
 
   return { baseUrl, token, schoolRoot, currentSemester };
@@ -108,6 +109,11 @@ export interface CourseMappingEntry {
   code: string;
   slug: string;
   semester: number;
+  /**
+   * Local folder name the course had before apply_course_mapping renamed it
+   * (e.g. "compilers"); lets the user keep referring to it by that name.
+   */
+  folder?: string;
 }
 
 /** Shape of config/courses.json: canvas course id (as string) -> mapping entry. */
@@ -135,4 +141,44 @@ export function saveCourseMapping(
 ): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(mapping, null, 2) + "\n", "utf-8");
+}
+
+export interface CourseFolderInfo {
+  slug: string;
+  semester: number;
+  /** `<courseDir>/canvas`, honouring the courses.json mapping when present. */
+  dir: string;
+}
+
+/**
+ * Resolves the on-disk canvas/ folder for a course, consulting
+ * `config/courses.json` FIRST: if the course id has a mapping entry, its
+ * slug + semester win over the live/derived ones (this is what makes
+ * `apply_course_mapping` actually take effect, and what keeps sync pointed
+ * at the right folder if `FIRST_TERM` — and therefore every course's derived
+ * semester — ever changes). Falls back to the course's own slug/semester
+ * when there is no mapping entry.
+ *
+ * Throws ConfigError if neither the mapping nor the course itself can supply
+ * a semester.
+ */
+export function folderForCourse(
+  course: { id: number; slug: string; semester: number | null },
+  cfg: Config = getConfig(),
+  mappingPath?: string
+): CourseFolderInfo {
+  const mapping = loadCourseMapping(mappingPath);
+  const entry = mapping[String(course.id)];
+  // `entry.folder` (if present) is only an alias for resolveCourse() lookups
+  // — it never affects the on-disk path, so it's deliberately not read here.
+  const slug = entry?.slug ?? course.slug;
+  const semester = entry?.semester ?? course.semester;
+
+  if (semester === null || semester === undefined) {
+    throw new ConfigError(
+      `Course "${course.slug}" has no derivable semester and no config/courses.json mapping; cannot locate its canvas/ dir.`
+    );
+  }
+
+  return { slug, semester, dir: canvasDir(slug, semester, cfg) };
 }

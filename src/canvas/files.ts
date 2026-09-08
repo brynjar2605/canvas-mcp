@@ -4,6 +4,15 @@ import type { CanvasFile, Folder } from "./types.js";
 import { listModules } from "./modules.js";
 import { getPage, listPages } from "./pages.js";
 import { mapWithConcurrency } from "../util/concurrency.js";
+import { sanitizeFolderPath } from "../util/fs.js";
+
+/** Bucket for files whose `folder_id` isn't in the course's folder listing at
+ * all (as opposed to the root folder, which resolves to `""`) — routine in
+ * discovered mode, where files reached via `/api/v1/files/:id` can live in
+ * folders the folders listing doesn't return. Keeps them out of the
+ * TEMPLATE FILES filter (they're not known to be junk) and out of the
+ * files/ root (so they don't collide with real root files). */
+export const UNKNOWN_FOLDER_BUCKET = "_unknown-folder";
 
 /** Compact, LLM-friendly file record used across sync + tools. */
 export interface FileEntry {
@@ -39,12 +48,14 @@ function stripCourseFilesPrefix(fullName: string): string {
   if (parts[0] === "course files") {
     parts.shift();
   }
-  return parts.join("/");
+  return sanitizeFolderPath(parts.join("/"));
 }
 
-/** Confirmed live: `course files/TEMPLATE FILES/Images/Icons` etc. hold ~150 junk RU template icons. */
+/** Confirmed live: `course files/TEMPLATE FILES/Images/Icons` etc. hold ~150 junk RU template icons.
+ * Matched on a segment boundary so a legitimate folder like `Template Files Overview` isn't caught. */
 function isTemplateFilesPath(folderPath: string): boolean {
-  return folderPath.toLowerCase().startsWith("template files");
+  const lower = folderPath.toLowerCase();
+  return lower === "template files" || lower.startsWith("template files/");
 }
 
 /**
@@ -72,10 +83,17 @@ function toFileEntry(
   folderPathById: Map<number, string>,
   source: "listing" | "discovered",
 ): FileEntry {
+  // `folderPathById.get(...) === ""` (the root folder) is a normal, known
+  // location. Not being in the map at all means Canvas's folder listing
+  // simply doesn't know about this folder_id — bucket it separately rather
+  // than silently dumping it at the files/ root (and, since it's an unknown
+  // location rather than a confirmed one, never subject to the TEMPLATE
+  // FILES exclusion).
+  const folderPath = folderPathById.has(f.folder_id) ? folderPathById.get(f.folder_id)! : UNKNOWN_FOLDER_BUCKET;
   return {
     id: f.id,
     name: f.display_name,
-    folderPath: folderPathById.get(f.folder_id) ?? "",
+    folderPath,
     size: f.size,
     contentType: f["content-type"] ?? "application/octet-stream",
     updatedAt: f.updated_at ?? f.modified_at ?? "",
@@ -229,8 +247,9 @@ export async function listAllFiles(client: CanvasClient, courseId: number): Prom
 export async function downloadFile(
   client: CanvasClient,
   file: FileEntry,
-  destPath: string
+  destPath: string,
+  root?: string
 ): Promise<number> {
   const fresh = await client.get<CanvasFile>(`/api/v1/files/${file.id}`);
-  return client.downloadToFile(fresh.url, destPath);
+  return client.downloadToFile(fresh.url, destPath, root);
 }

@@ -5,9 +5,9 @@
 // filenames, and handle the macOS/APFS case-insensitive-but-case-preserving
 // filesystem correctly when a folder rename only changes case.
 
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { mkdir, rename, stat, unlink, writeFile } from "node:fs/promises";
-import { dirname, extname, resolve, sep } from "node:path";
+import { dirname, extname, join, resolve, sep } from "node:path";
 
 /**
  * Sanitizes a Canvas display name into a safe filesystem path segment.
@@ -27,6 +27,12 @@ export function sanitizeFilename(name: string): string {
   if (s.length === 0) {
     s = "_";
   }
+  // `.` and `..` are meaningful path segments (self / parent directory) —
+  // never let a Canvas-supplied name collapse a join() back onto (or above)
+  // the containing directory.
+  if (s === "." || s === "..") {
+    s = "_";
+  }
   if (s.length > 200) {
     const dot = s.lastIndexOf(".");
     const looksLikeExtension = dot > 0 && s.length - dot <= 20;
@@ -42,17 +48,124 @@ export function sanitizeFilename(name: string): string {
   return s;
 }
 
+/** True when `s` is empty, or made up only of `_`, `.`, or whitespace — i.e.
+ * not a usable display name (a bare fallback, or a degenerate original like
+ * "", ".", "..", "   "). */
+function isDegenerateName(s: string): boolean {
+  return /^[_.\s]*$/.test(s);
+}
+
+/**
+ * Like {@link sanitizeFilename}, but for names that must never collide or be
+ * unreadable: if sanitizing `name` produces nothing usable (empty, ".", "..",
+ * or only `_`/`.`/space), returns `fallback` instead (itself sanitized).
+ * Callers pass a fallback derived from something guaranteed unique, e.g.
+ * `file-<id>` or `page-<n>`.
+ */
+export function safeFilename(name: string, fallback: string): string {
+  const s = sanitizeFilename(name);
+  return isDegenerateName(s) ? sanitizeFilename(fallback) : s;
+}
+
+/** Canvas content-types we can confidently map to a familiar extension. */
+const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
+  "application/pdf": ".pdf",
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/jpg": ".jpg",
+  "image/gif": ".gif",
+  "application/zip": ".zip",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+  "text/plain": ".txt",
+};
+
+/** Guesses a file extension (with leading dot) from a Canvas content-type, or null if unknown. */
+export function extensionForContentType(contentType: string | undefined | null): string | null {
+  if (!contentType) return null;
+  return CONTENT_TYPE_EXTENSIONS[contentType.toLowerCase().trim()] ?? null;
+}
+
+/**
+ * Appends an extension guessed from `contentType` to `name` when `name` has
+ * none already. Used for fallback names (`file-<id>`) that carry no
+ * extension of their own.
+ */
+export function withGuessedExtension(name: string, contentType: string | undefined | null): string {
+  if (extname(name)) return name;
+  const ext = extensionForContentType(contentType);
+  return ext ? name + ext : name;
+}
+
+/**
+ * Sanitizes every segment of a `/`-separated relative folder path (e.g. a
+ * Canvas folder's `full_name` with the "course files" prefix stripped).
+ * Segments that sanitize down to nothing usable (empty, ".", "..") are
+ * dropped rather than aborting or replacing with a placeholder — so a single
+ * bad segment shrinks the path instead of failing the sync.
+ */
+export function sanitizeFolderPath(folderPath: string): string {
+  if (!folderPath) return "";
+  return folderPath
+    .split("/")
+    .map((seg) => sanitizeFilename(seg))
+    .filter((seg) => seg !== "" && seg !== "_")
+    .join("/");
+}
+
 /**
  * Resolves `target` against `root` and throws if the resolved path escapes
- * `root` (path traversal guard, e.g. a Canvas-supplied name containing `..`).
+ * `root` (path traversal guard, e.g. a Canvas-supplied name containing `..`),
+ * INCLUDING when `target` resolves to `root` itself — every write this guards
+ * must land strictly inside `root`, never overwrite it. Also resolves
+ * symlinks along the existing portion of the path so a symlink planted
+ * inside `root` (e.g. `canvas/files` pointed elsewhere) cannot redirect a
+ * write outside of it, even though the guard is otherwise synchronous/lexical.
  * Returns the resolved absolute path on success.
  */
 export function ensureInside(root: string, target: string): string {
   const resolvedRoot = resolve(root);
   const resolvedTarget = resolve(target);
-  if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(resolvedRoot + sep)) {
+  if (!resolvedTarget.startsWith(resolvedRoot + sep)) {
     throw new Error(`Refusing to write outside of ${resolvedRoot}: ${target}`);
   }
+
+  let realRoot: string;
+  try {
+    realRoot = realpathSync(resolvedRoot);
+  } catch {
+    // Root doesn't exist yet (e.g. dry run, or before the first sync creates
+    // it) — nothing has been created under it yet, so there is nothing a
+    // symlink could already be redirecting. The lexical check above stands.
+    return resolvedTarget;
+  }
+
+  // Walk the relative path component by component from the (real) root,
+  // checking each existing component for a symlink that escapes realRoot.
+  const relPath = resolvedTarget.slice(resolvedRoot.length + 1);
+  let lexical = resolvedRoot;
+  for (const part of relPath.split(sep)) {
+    lexical = join(lexical, part);
+    let st;
+    try {
+      st = lstatSync(lexical);
+    } catch {
+      // This component doesn't exist yet, so nothing under it can be a
+      // symlink redirecting the write — safe to stop checking here.
+      break;
+    }
+    if (st.isSymbolicLink()) {
+      const real = realpathSync(lexical);
+      if (real !== realRoot && !real.startsWith(realRoot + sep)) {
+        throw new Error(
+          `Refusing to write outside of ${resolvedRoot} (symlink at ${lexical} escapes it): ${target}`
+        );
+      }
+      lexical = real;
+    }
+  }
+
   return resolvedTarget;
 }
 

@@ -4,19 +4,30 @@ import { currentCourses, resolveCourse } from "../canvas/courses.js";
 import { DEFAULT_ANNOUNCEMENT_DAYS, listAnnouncements } from "../canvas/announcements.js";
 import { formatReykjavikDateTime } from "../canvas/calendar.js";
 
-const BODY_LIMIT = 1500;
+const BODY_LIMIT = 600;
 
 export const tool = defineTool({
   name: "list_announcements",
-  description: "List course announcements from the last N days (default 30), newest first.",
+  description:
+    "List course announcements from the last N days (default 30), newest first. Bodies are trimmed to " +
+    `${BODY_LIMIT} chars by default — pass full: true for the untrimmed body.`,
   inputSchema: {
-    course: z.string().optional().describe("Course slug, code, or id. Omit for all current-semester courses."),
+    course: z
+      .union([z.string(), z.number()])
+      .optional()
+      .describe(
+        'Course slug like "thyd", full code like "T-603-THYD", numeric Canvas id, or a distinctive word from the course name. Omit for all current-semester courses.',
+      ),
     days: z
       .number()
       .int()
       .positive()
       .optional()
       .describe(`How many days back to look (default ${DEFAULT_ANNOUNCEMENT_DAYS}).`),
+    full: z
+      .boolean()
+      .optional()
+      .describe(`Return full, untrimmed announcement bodies. Default false (bodies over ${BODY_LIMIT} chars are trimmed).`),
   },
   handler: async (input, ctx) => {
     const courses = input.course
@@ -27,6 +38,7 @@ export const tool = defineTool({
     }
 
     const days = input.days ?? DEFAULT_ANNOUNCEMENT_DAYS;
+    const full = input.full ?? false;
     const announcements = await listAnnouncements(ctx.client, courses, days);
     if (announcements.length === 0) {
       return `No announcements in the last ${days} days.`;
@@ -36,9 +48,9 @@ export const tool = defineTool({
       const date = a.postedAt ? formatReykjavikDateTime(a.postedAt) : "no date";
       let body = a.bodyMarkdown.trim();
       let trimmedNote = "";
-      if (body.length > BODY_LIMIT) {
+      if (!full && body.length > BODY_LIMIT) {
         body = `${body.slice(0, BODY_LIMIT)}...`;
-        trimmedNote = "\n\n_(body trimmed)_";
+        trimmedNote = "\n\n_(body trimmed — pass full: true for the rest)_";
       }
       return `## [${a.courseSlug}] ${a.title} — ${date}\n\n${body || "(no body)"}${trimmedNote}`;
     });

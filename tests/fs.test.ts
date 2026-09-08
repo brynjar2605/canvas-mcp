@@ -1,8 +1,17 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { atomicWriteText, ensureInside, renameDirSafe, sanitizeFilename } from "../src/util/fs.js";
+import {
+  atomicWriteText,
+  ensureInside,
+  extensionForContentType,
+  renameDirSafe,
+  safeFilename,
+  sanitizeFilename,
+  sanitizeFolderPath,
+  withGuessedExtension,
+} from "../src/util/fs.js";
 
 describe("sanitizeFilename", () => {
   it("keeps Icelandic characters and spaces", () => {
@@ -44,6 +53,61 @@ describe("sanitizeFilename", () => {
     expect(sanitizeFilename("")).not.toBe("");
     expect(sanitizeFilename("   ")).not.toBe("");
   });
+
+  it("maps '.' and '..' to a safe placeholder rather than passing them through", () => {
+    expect(sanitizeFilename(".")).toBe("_");
+    expect(sanitizeFilename("..")).toBe("_");
+  });
+});
+
+describe("safeFilename", () => {
+  it("falls back when the name is empty", () => {
+    expect(safeFilename("", "file-2571780")).toBe("file-2571780");
+  });
+
+  it("falls back for '.' and '..'", () => {
+    expect(safeFilename(".", "file-1")).toBe("file-1");
+    expect(safeFilename("..", "file-2")).toBe("file-2");
+  });
+
+  it("falls back for whitespace/underscore-only names", () => {
+    expect(safeFilename("   ", "file-3")).toBe("file-3");
+    expect(safeFilename("___", "file-4")).toBe("file-4");
+  });
+
+  it("keeps a usable original name unchanged", () => {
+    expect(safeFilename("Yfirlit.pdf", "file-5")).toBe("Yfirlit.pdf");
+  });
+});
+
+describe("extensionForContentType / withGuessedExtension", () => {
+  it("maps common content-types to extensions", () => {
+    expect(extensionForContentType("application/pdf")).toBe(".pdf");
+    expect(extensionForContentType("image/png")).toBe(".png");
+    expect(extensionForContentType("application/octet-stream")).toBeNull();
+  });
+
+  it("appends a guessed extension only when the name has none", () => {
+    expect(withGuessedExtension("file-1", "application/pdf")).toBe("file-1.pdf");
+    expect(withGuessedExtension("file-1.txt", "application/pdf")).toBe("file-1.txt");
+    expect(withGuessedExtension("file-1", "application/octet-stream")).toBe("file-1");
+  });
+});
+
+describe("sanitizeFolderPath", () => {
+  it("sanitizes each segment independently", () => {
+    expect(sanitizeFolderPath("Vika: 1")).toBe("Vika_ 1");
+    expect(sanitizeFolderPath("Fyrirlestrar/Vika 3")).toBe("Fyrirlestrar/Vika 3");
+  });
+
+  it("drops segments that sanitize to nothing usable instead of throwing", () => {
+    expect(sanitizeFolderPath("a/../b")).toBe("a/b");
+    expect(sanitizeFolderPath("../../../../tmp/pwned")).toBe("tmp/pwned");
+  });
+
+  it("returns '' for an empty/root path", () => {
+    expect(sanitizeFolderPath("")).toBe("");
+  });
 });
 
 describe("ensureInside", () => {
@@ -53,8 +117,8 @@ describe("ensureInside", () => {
     expect(ensureInside(root, join(root, "files", "a.pdf"))).toBe(join(root, "files", "a.pdf"));
   });
 
-  it("allows root itself", () => {
-    expect(ensureInside(root, root)).toBe(root);
+  it("rejects the root itself as a target — every write must land strictly inside root", () => {
+    expect(() => ensureInside(root, root)).toThrow();
   });
 
   it("rejects a path traversal attempt", () => {
@@ -70,6 +134,42 @@ describe("ensureInside", () => {
     // is not actually inside it — a naive startsWith check without the separator
     // would wrongly allow this.
     expect(() => ensureInside(root, root + "-evil/x.txt")).toThrow();
+  });
+});
+
+describe("ensureInside — symlink escape", () => {
+  let realRoot: string;
+  let outside: string;
+
+  beforeEach(() => {
+    realRoot = mkdtempSync(join(tmpdir(), "canvas-mcp-real-root-"));
+    outside = mkdtempSync(join(tmpdir(), "canvas-mcp-outside-"));
+  });
+
+  afterEach(() => {
+    rmSync(realRoot, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  it("rejects a target under a symlinked directory that escapes root", () => {
+    // realRoot/files -> outside (a sibling temp dir, not under realRoot at all).
+    symlinkSync(outside, join(realRoot, "files"));
+    expect(() => ensureInside(realRoot, join(realRoot, "files", "a.pdf"))).toThrow(/symlink/);
+    expect(existsSync(join(outside, "a.pdf"))).toBe(false);
+  });
+
+  it("allows a target through a symlink that stays inside root", () => {
+    const realSubdir = join(realRoot, "actual-files");
+    mkdirSync(realSubdir);
+    symlinkSync(realSubdir, join(realRoot, "files"));
+    expect(ensureInside(realRoot, join(realRoot, "files", "a.pdf"))).toBe(join(realRoot, "files", "a.pdf"));
+  });
+
+  it("allows a target when root itself doesn't exist yet (dry run before first sync)", () => {
+    const notYetCreated = join(realRoot, "does-not-exist-yet");
+    expect(ensureInside(notYetCreated, join(notYetCreated, "files", "a.pdf"))).toBe(
+      join(notYetCreated, "files", "a.pdf")
+    );
   });
 });
 

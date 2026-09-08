@@ -161,12 +161,32 @@ describe("getAssignment", () => {
       { description: "Structure", points: 15 },
     ]);
     expect(detail.attachments).toEqual([
-      { name: "handout.pdf", url: "https://x.test/courses/1/files/999/download" },
+      { name: "handout.pdf", url: "https://x.test/courses/1/files/999/download", fileId: 999 },
     ]);
     expect(detail.unlockAt).toBe("2026-09-10T00:00:00Z");
     expect(detail.lockAt).toBe("2026-09-21T00:00:00Z");
     expect(detail.submissionTypes).toEqual(["online_upload"]);
     expect(detail.courseSlug).toBe("thyd");
+  });
+
+  it("decodes HTML entities and strips the verifier param from attachment hrefs (real Canvas shape)", async () => {
+    const raw = {
+      id: 44,
+      name: "Handout",
+      due_at: null,
+      points_possible: null,
+      html_url: "https://x.test/44",
+      description:
+        '<p><a href="https://x.test/files/2712565/download?verifier=abc123&amp;wrap=1">Skjal &amp; gögn.pdf</a></p>',
+    };
+    const detail = await getAssignment(clientReturning(raw), course, 44);
+    expect(detail.attachments).toEqual([
+      {
+        name: "Skjal & gögn.pdf",
+        url: "https://x.test/files/2712565/download?wrap=1",
+        fileId: 2712565,
+      },
+    ]);
   });
 
   it("returns an empty rubric/attachments array when the assignment has none", async () => {

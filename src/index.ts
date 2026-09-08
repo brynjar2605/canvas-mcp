@@ -42,7 +42,7 @@ export function createServer(ctx?: ToolContext): McpServer {
           const message = err instanceof Error ? err.message : String(err);
           const needsEnvHint = err instanceof CanvasAuthError || err instanceof ConfigError;
           const hint = needsEnvHint
-            ? " Check your .env file (CANVAS_TOKEN, CANVAS_BASE_URL, SCHOOL_ROOT, CURRENT_SEMESTER)."
+            ? " Check your .env file (CANVAS_TOKEN, CANVAS_BASE_URL, SCHOOL_ROOT)."
             : "";
           return {
             isError: true,

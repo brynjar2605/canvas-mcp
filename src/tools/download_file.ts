@@ -2,8 +2,8 @@ import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { resolveCourse } from "../canvas/courses.js";
 import { downloadFile, listAllFiles } from "../canvas/files.js";
-import { canvasDir } from "../config.js";
-import { ensureInside, sanitizeFilename } from "../util/fs.js";
+import { folderForCourse } from "../config.js";
+import { ensureInside, safeFilename, withGuessedExtension } from "../util/fs.js";
 import { defineTool } from "./_types.js";
 
 export const tool = defineTool({
@@ -20,9 +20,6 @@ export const tool = defineTool({
   },
   handler: async (input, ctx) => {
     const course = await resolveCourse(ctx.client, input.course);
-    if (course.semester === null) {
-      throw new Error(`Course "${course.slug}" has no derivable semester; cannot resolve its canvas/ dir.`);
-    }
 
     const files = await listAllFiles(ctx.client, course.id);
     const file = files.find((f) => f.id === input.file_id);
@@ -30,10 +27,9 @@ export const tool = defineTool({
       throw new Error(`File id ${input.file_id} not found in course "${course.slug}".`);
     }
 
-    const dir = canvasDir(course.slug, course.semester, ctx.config);
-    const defaultRel = file.folderPath
-      ? join("files", file.folderPath, sanitizeFilename(file.name))
-      : join("files", sanitizeFilename(file.name));
+    const { dir } = folderForCourse(course, ctx.config);
+    const safeName = withGuessedExtension(safeFilename(file.name, `file-${file.id}`), file.contentType);
+    const defaultRel = file.folderPath ? join("files", file.folderPath, safeName) : join("files", safeName);
     const requestedPath = input.dest
       ? isAbsolute(input.dest)
         ? input.dest
@@ -41,7 +37,7 @@ export const tool = defineTool({
       : join(dir, defaultRel);
     const destPath = ensureInside(dir, requestedPath);
 
-    const bytes = await downloadFile(ctx.client, file, destPath);
+    const bytes = await downloadFile(ctx.client, file, destPath, dir);
     return `Downloaded "${file.name}" (${bytes} bytes) to ${destPath}`;
   },
 });

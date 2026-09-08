@@ -52,11 +52,27 @@ export interface PageDetail {
 
 /**
  * Fetches a single page's full body. Throws a clear error if Pages is
- * disabled for the course or the page does not exist.
+ * disabled for the course or the page does not exist. `courseLabel` (e.g. a
+ * course slug) is used only for that error message so it names what the
+ * user typed, not Canvas's internal numeric id; defaults to the id itself
+ * for callers (e.g. file discovery) that don't have a nicer label handy.
  */
-export async function getPage(client: CanvasClient, courseId: number, pageUrl: string): Promise<PageDetail> {
+export async function getPage(
+  client: CanvasClient,
+  courseId: number,
+  pageUrl: string,
+  courseLabel: string = String(courseId),
+): Promise<PageDetail> {
+  // `pageUrl` can come straight from an LLM tool call (get_page) as well as
+  // from Canvas's own page listing. Reject anything that could escape the
+  // `/pages/:url` path segment (a literal "/" or "..") and percent-encode
+  // the rest, so this stays a read on one page rather than an arbitrary GET
+  // against any Canvas endpoint with attacker-chosen query params.
+  if (pageUrl.includes("/") || pageUrl.includes("..")) {
+    throw new Error(`Invalid page url: "${pageUrl}"`);
+  }
   try {
-    const p = await client.get<Page>(`/api/v1/courses/${courseId}/pages/${pageUrl}`);
+    const p = await client.get<Page>(`/api/v1/courses/${courseId}/pages/${encodeURIComponent(pageUrl)}`);
     return {
       title: p.title,
       url: p.url,
@@ -67,7 +83,8 @@ export async function getPage(client: CanvasClient, courseId: number, pageUrl: s
   } catch (err) {
     if (err instanceof CanvasApiError && (err.status === 403 || err.status === 404)) {
       throw new Error(
-        `Page "${pageUrl}" not found in course ${courseId} (Pages may be disabled for this course, or the url is wrong).`,
+        `Page "${pageUrl}" not found in ${courseLabel}. Pages may be disabled for this course, or the url ` +
+          `slug is wrong — run search_materials or list_modules to see the real page_url values.`,
       );
     }
     throw err;

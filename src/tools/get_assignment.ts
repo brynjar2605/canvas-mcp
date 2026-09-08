@@ -8,8 +8,12 @@ export const tool = defineTool({
   name: "get_assignment",
   description: "Full detail for one assignment: description (markdown), rubric, attachments, submission state.",
   inputSchema: {
-    course: z.string().describe("Course slug, code, or id."),
-    assignment_id: z.number().int().describe("Canvas assignment id (from list_assignments)."),
+    course: z
+      .union([z.string(), z.number()])
+      .describe(
+        'Course slug like "thyd", full code like "T-603-THYD", numeric Canvas id, or a distinctive word from the course name.',
+      ),
+    assignment_id: z.number().int().describe("Canvas assignment id (from list_assignments or get_upcoming)."),
   },
   handler: async (input, ctx) => {
     const course = await resolveCourse(ctx.client, input.course);
@@ -28,9 +32,9 @@ export const tool = defineTool({
     lines.push(`- Status: ${status}`);
 
     if (a.score !== null) {
-      lines.push(
-        `- Score: ${a.score}${a.pointsPossible !== null ? `/${a.pointsPossible}` : ""}${a.grade ? ` (${a.grade})` : ""}`,
-      );
+      const scoreText = `${a.score}${a.pointsPossible !== null ? `/${a.pointsPossible}` : ""}`;
+      const gradePart = a.grade && a.grade !== scoreText ? ` (${a.grade})` : "";
+      lines.push(`- Score: ${scoreText}${gradePart}`);
     }
     lines.push(`- Link: ${a.htmlUrl}`);
 
@@ -47,7 +51,8 @@ export const tool = defineTool({
     if (a.attachments && a.attachments.length > 0) {
       lines.push("", "## Attachments");
       for (const att of a.attachments) {
-        lines.push(`- [${att.name}](${att.url})`);
+        const fileIdPart = att.fileId !== null ? ` (file_id ${att.fileId})` : "";
+        lines.push(`- [${att.name}](${att.url})${fileIdPart}`);
       }
     }
 

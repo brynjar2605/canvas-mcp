@@ -25,6 +25,12 @@ describe("formatReykjavikDateTime / formatReykjavikDay", () => {
   it("pads single-digit hours/minutes", () => {
     expect(formatReykjavikDateTime("2026-01-05T09:05:00Z")).toBe("Mon 5 Jan 09:05");
   });
+
+  it("appends the year when it differs from the current calendar year", () => {
+    const now = new Date("2026-09-08T00:00:00Z");
+    expect(formatReykjavikDateTime("2025-09-14T23:59:00Z", now)).toBe("Sun 14 Sep 2025 23:59");
+    expect(formatReykjavikDateTime("2026-09-14T23:59:00Z", now)).toBe("Mon 14 Sep 23:59");
+  });
 });
 
 describe("formatReykjavikTimeRange", () => {
@@ -55,7 +61,12 @@ describe("getUpcoming", () => {
         plannable_id: 55,
         plannable_date: "2026-09-10T10:00:00Z",
         course_id: 2,
-        plannable: { title: "Lecture 1", start_at: "2026-09-10T10:00:00Z", end_at: "2026-09-10T11:40:00Z" },
+        plannable: {
+          title: "Lecture 1",
+          start_at: "2026-09-10T10:00:00Z",
+          end_at: "2026-09-10T11:40:00Z",
+          location_name: "M120",
+        },
         html_url: "https://x.test/event/55",
         submissions: false,
       },
@@ -88,12 +99,13 @@ describe("getUpcoming", () => {
     expect(items.filter((i) => i.title === "Lecture 1")).toHaveLength(1);
 
     const hw1 = items.find((i) => i.title === "HW1")!;
-    expect(hw1).toMatchObject({ type: "assignment", courseSlug: "thyd", courseId: 1, points: 10, submitted: true });
+    expect(hw1).toMatchObject({ type: "assignment", courseSlug: "thyd", courseId: 1, points: 10, submitted: true, contentId: 10 });
 
     const lecture = items.find((i) => i.title === "Lecture 1")!;
-    expect(lecture).toMatchObject({ type: "event", courseSlug: "tsam", courseId: 2, points: null, submitted: null });
+    expect(lecture).toMatchObject({ type: "event", courseSlug: "tsam", courseId: 2, points: null, submitted: null, contentId: 55 });
     // The planner's own copy (with end_at) wins over the calendar_events duplicate that gets deduped away.
     expect(lecture.endDate).toBe("2026-09-10T11:40:00Z");
+    expect(lecture.location).toBe("M120");
   });
 
   it("sends start_date/end_date and context_codes[] for the given courses", async () => {

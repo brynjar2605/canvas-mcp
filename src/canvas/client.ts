@@ -5,6 +5,23 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { Config } from "../config.js";
 import { getConfig } from "../config.js";
+import { ensureInside } from "../util/fs.js";
+
+/**
+ * Strips the `verifier` query param (a bearer-equivalent credential for
+ * Canvas's pre-signed file URLs) from a URL before it can end up in an error
+ * message that gets logged, stored in a sync report, or shown to the user.
+ * Falls back to a regex strip if the string isn't a parseable URL.
+ */
+export function redactUrl(rawUrl: string): string {
+  try {
+    const u = new URL(rawUrl);
+    u.searchParams.delete("verifier");
+    return u.toString();
+  } catch {
+    return rawUrl.replace(/([?&])verifier=[^&]*&?/gi, "$1").replace(/[?&]$/, "");
+  }
+}
 
 export type FetchImpl = typeof fetch;
 export type SleepFn = (ms: number) => Promise<void>;
@@ -210,13 +227,38 @@ export class CanvasClient {
 
     const results: T[] = [];
     let nextUrl: URL | null = initialUrl;
+    const baseOrigin = new URL(this.config.baseUrl).origin;
+    const seenUrls = new Set<string>();
+    const MAX_PAGES = 500;
+    let pageCount = 0;
 
     while (nextUrl) {
+      if (pageCount++ >= MAX_PAGES) {
+        debugLog("getAll: page cap reached, stopping pagination", nextUrl.toString());
+        break;
+      }
+      const urlKey = nextUrl.toString();
+      if (seenUrls.has(urlKey)) {
+        debugLog("getAll: repeated next URL, stopping pagination (possible loop)", urlKey);
+        break;
+      }
+      seenUrls.add(urlKey);
+
       const { data, headers } = await this.requestJson<T[]>(nextUrl);
       results.push(...data);
 
       const links = parseLinkHeader(headers.get("Link"));
-      nextUrl = links.next ? new URL(links.next) : null;
+      const next = links.next ? new URL(links.next) : null;
+      // Never follow a `Link: rel="next"` to a different origin than the
+      // configured Canvas instance — `requestJson` unconditionally attaches
+      // the bearer token, so a foreign/compromised next-URL must not be
+      // fetched at all (that would leak the token to that host).
+      if (next && next.origin !== baseOrigin) {
+        debugLog("getAll: ignoring cross-origin Link rel=next", next.origin);
+        nextUrl = null;
+      } else {
+        nextUrl = next;
+      }
     }
 
     if (ttlMs > 0) {
@@ -231,17 +273,27 @@ export class CanvasClient {
    * `destPath + ".part"` then renames into place. Canvas file URLs do not
    * need the bearer token and may redirect; fetch follows redirects by default.
    * Returns the number of bytes written.
+   *
+   * When `root` is given, both `destPath` and its `.part` sidecar are
+   * validated with {@link ensureInside} before anything is written — the
+   * sidecar path is a distinct string from `destPath` (it appends to the
+   * filename, not the directory) and must be checked in its own right, not
+   * assumed safe just because `destPath` was already validated by the caller.
    */
-  async downloadToFile(url: string, destPath: string): Promise<number> {
-    await mkdir(dirname(destPath), { recursive: true });
+  async downloadToFile(url: string, destPath: string, root?: string): Promise<number> {
     const partPath = `${destPath}.part`;
+    if (root) {
+      ensureInside(root, destPath);
+      ensureInside(root, partPath);
+    }
+    await mkdir(dirname(destPath), { recursive: true });
 
     const response = await this.fetchImpl(url, { redirect: "follow" });
     if (!response.ok) {
-      throw new CanvasApiError(response.status, `Failed to download ${url}: status ${response.status}`);
+      throw new CanvasApiError(response.status, `Failed to download ${redactUrl(url)}: status ${response.status}`);
     }
     if (!response.body) {
-      throw new Error(`No response body when downloading ${url}`);
+      throw new Error(`No response body when downloading ${redactUrl(url)}`);
     }
 
     let bytesWritten = 0;

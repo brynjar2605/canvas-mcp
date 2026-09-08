@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { z } from "zod";
 import { currentSemesterOf, listCourses } from "../canvas/courses.js";
 import { semesterDir } from "../config.js";
@@ -19,21 +19,51 @@ export function listExistingFolders(dir: string): string[] {
     .sort();
 }
 
-/** Renders a MappingProposal as a plain-text table, used by both this tool and the CLI. */
-export function formatProposal(proposal: MappingProposal): string {
-  const header = ["slug", "code", "name", "existing folder", "action"];
-  const rows = proposal.entries.map((e) => [e.slug, e.code, e.name, e.existingFolder ?? "(none)", e.action]);
-  const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)));
-  const fmtRow = (r: string[]): string => r.map((c, i) => c.padEnd(widths[i]!)).join("  ");
+/**
+ * Renders a MappingProposal as markdown: the absolute semester directory up
+ * top (the user is approving a filesystem mutation, so which directory tree
+ * matters), an explicit from -> to plan per course including a note on
+ * case-only renames (done via a temp name, since some filesystems treat
+ * "POSH" and "posh" as the same path), and a ready-to-run override suggestion
+ * for any folder no course claimed.
+ */
+export function formatProposal(proposal: MappingProposal, absoluteDir: string, dirExists: boolean): string {
+  const lines: string[] = [`Mapping proposal for ${absoluteDir}`, ""];
 
-  const lines: string[] = [`Mapping proposal for ${proposal.semesterDir}:`, "", fmtRow(header), widths.map((w) => "-".repeat(w)).join("  ")];
-  for (const r of rows) lines.push(fmtRow(r));
+  if (!dirExists) {
+    lines.push(`Note: ${absoluteDir} does not exist yet — it will be created.`, "");
+  }
+
+  lines.push("| slug | code | name | plan |", "| --- | --- | --- | --- |");
+  for (const e of proposal.entries) {
+    let plan: string;
+    if (e.action === "create") {
+      plan = `create \`${e.slug}/\``;
+    } else if (e.action === "keep") {
+      plan = `keep \`${e.slug}/\``;
+    } else {
+      const caseOnly = e.existingFolder !== null && e.existingFolder.toLowerCase() === e.slug.toLowerCase();
+      const caseNote = caseOnly ? " (case-only; done via a temp name, safe on macOS)" : "";
+      plan = `rename \`${e.existingFolder}/\` → \`${e.slug}/\`${caseNote}`;
+    }
+    lines.push(`| ${e.slug} | ${e.code} | ${e.name} | ${plan} |`);
+  }
 
   if (proposal.unmatchedFolders.length > 0) {
-    lines.push("");
-    lines.push(`Unmatched existing folders (left as-is): ${proposal.unmatchedFolders.join(", ")}`);
-    lines.push(`Fill gaps with overrides: { "<existing-folder>": "<slug>" }, then re-propose.`);
+    const example = proposal.unmatchedFolders[0]!;
+    lines.push(
+      "",
+      `Folders no course claimed (will be left untouched): ${proposal.unmatchedFolders.map((f) => `\`${f}\``).join(", ")}`,
+      "If one of these is actually a course folder under a different name, re-run with overrides, e.g.:",
+      `  propose_course_mapping({ overrides: { "${example}": "<slug>" } })`,
+      "then apply_course_mapping with the same overrides.",
+    );
   }
+
+  lines.push(
+    "",
+    "Nothing has been changed. Renames never delete anything; existing folders are only renamed, and files already inside them are preserved.",
+  );
 
   return lines.join("\n");
 }
@@ -60,8 +90,9 @@ export const tool = defineTool({
       throw new Error("Could not determine the current semester from Canvas courses; pass `semester` explicitly.");
     }
     const dir = semesterDir(semester, ctx.config);
+    const dirExists = existsSync(dir);
     const existingFolders = listExistingFolders(dir);
     const proposal = proposeMapping(courses, semester, existingFolders, input.overrides);
-    return formatProposal(proposal);
+    return formatProposal(proposal, dir, dirExists);
   },
 });

@@ -52,6 +52,24 @@ describe("CanvasClient", () => {
     expect(firstUrl.searchParams.get("per_page")).toBe("100");
   });
 
+  it("never follows a Link: rel=next to a different origin than baseUrl (token exfiltration guard)", async () => {
+    const fetchImpl = vi.fn<FetchImpl>().mockResolvedValueOnce(
+      jsonResponse([{ id: 1 }], {
+        headers: { Link: '<https://evil.example.com/steal?x=1>; rel="next"' },
+      })
+    );
+    const client = new CanvasClient(baseConfig, { fetchImpl, sleep });
+
+    const result = await client.getAll<{ id: number }>("/api/v1/courses");
+
+    expect(result).toEqual([{ id: 1 }]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    for (const call of fetchImpl.mock.calls) {
+      const url = new URL(call[0] as string);
+      expect(url.origin).not.toBe("https://evil.example.com");
+    }
+  });
+
   it("(c) array params serialise as include[]=a&include[]=b", async () => {
     const fetchImpl = vi.fn<FetchImpl>().mockResolvedValueOnce(jsonResponse({ ok: true }));
     const client = new CanvasClient(baseConfig, { fetchImpl, sleep });
@@ -179,6 +197,33 @@ describe("CanvasClient", () => {
       const [, requestInit] = fetchImpl.mock.calls[0] as [string, RequestInit | undefined];
       const headers = requestInit?.headers as Record<string, string> | undefined;
       expect(headers?.Authorization).toBeUndefined();
+    });
+
+    it("strips the verifier= query param from a failed-download error message", async () => {
+      const fetchImpl = vi.fn<FetchImpl>().mockResolvedValueOnce(new Response("gone", { status: 500 }));
+      const client = new CanvasClient(baseConfig, { fetchImpl, sleep });
+
+      const destPath = join(tmpDir, "file.txt");
+      try {
+        await client.downloadToFile(
+          "https://files.example.com/signed/123?verifier=super-secret-uuid&wrap=1",
+          destPath
+        );
+        expect.fail("expected downloadToFile to throw");
+      } catch (err) {
+        const msg = String((err as Error).message);
+        expect(msg).not.toContain("super-secret-uuid");
+        expect(msg).not.toContain("verifier=");
+      }
+    });
+
+    it("rejects both destPath and its .part sidecar against root before writing anything", async () => {
+      const fetchImpl = vi.fn<FetchImpl>().mockResolvedValueOnce(new Response("data", { status: 200 }));
+      const client = new CanvasClient(baseConfig, { fetchImpl, sleep });
+
+      // destPath === root: ensureInside must reject this (no write allowed at root itself).
+      await expect(client.downloadToFile("https://files.example.com/x", tmpDir, tmpDir)).rejects.toThrow();
+      expect(fetchImpl).not.toHaveBeenCalled();
     });
   });
 });

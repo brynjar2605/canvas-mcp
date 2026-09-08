@@ -32,12 +32,20 @@ CANVAS_BASE_URL=https://reykjavik.instructure.com
 CANVAS_TOKEN=paste-your-token-here
 SCHOOL_ROOT=/Users/you/Documents/Tolvunarfraedi
 CURRENT_SEMESTER=5
+FIRST_TERM=Haustönn 2024
 ```
 
 - `CANVAS_TOKEN` — the token from step 1. Never commit this file; `.env` is gitignored.
 - `SCHOOL_ROOT` — the directory containing your `onn <N>` semester folders.
-- `CURRENT_SEMESTER` — which `onn <N>` you're currently in (used as a fallback and for sync
-  defaults). The server also derives each course's semester from its Canvas term name.
+- `FIRST_TERM` — the term (`Haustönn` = autumn, `Vorönn` = spring) you started your studies in,
+  e.g. `Haustönn 2024`. Every `onn <N>` number in the product (course folders, `propose_course_mapping`,
+  sync destinations) is counted from this term, two terms per year, 1-based — so `Haustönn 2024` is
+  önn 1, `Vorönn 2025` is önn 2, and so on. Defaults to `Haustönn 2024` if unset. If courses are
+  landing in the wrong `onn <N>` folder, this is almost always why.
+- `CURRENT_SEMESTER` — still required to start the server today, but only actually *used* as a
+  last-resort fallback (in `search_materials`, when a course's semester can't be derived from its
+  Canvas term at all). Most setups never hit that fallback, since `FIRST_TERM` derives every
+  current course's semester automatically — any integer value works if you're unsure.
 
 ### 3. Install and build
 
@@ -49,17 +57,26 @@ npm run build
 `npm run dev` runs the server directly from TypeScript (via `tsx`) without building, useful while
 iterating.
 
-### 4. Map your courses (first run)
+### 4. Rename your course folders (first run, optional)
+
+**Every tool works without this step** — `list_courses`, `list_assignments`, `search_materials`, and
+so on all resolve courses live against Canvas and need no local configuration. This step only
+matters once you start syncing: `sync_course` writes to `onn <N>/<slug>/canvas`, so if your course
+folder is called `compilers` instead of `thyd`, sync will create a brand-new `thyd/` folder next to
+it instead of writing into your existing one.
 
 Canvas course codes (`T-603-THYD`) need to be mapped to your local folder names (`thyd`) and a
 semester number. Run the two mapping tools once (via Claude, see below, or the CLI):
 
-1. `propose_course_mapping` — proposes `config/courses.json` plus a folder-rename plan
-   (e.g. `POSH` → `posh`, `compilers` → `thyd` if it can't auto-match). It does **not** write
-   anything.
+1. `propose_course_mapping` — proposes a folder-rename plan (e.g. `POSH` → `posh`, `compilers` →
+   `thyd` if it can't auto-match). It does **not** write anything.
 2. Review the proposal, fill in any `overrides` for folders it couldn't match, then run
-   `apply_course_mapping` with `confirm: true` to write `config/courses.json` and perform the
-   renames. `config/courses.json` is also gitignored (it contains your real Canvas course ids).
+   `apply_course_mapping` with `confirm: true` to rename the folders and write `config/courses.json`
+   (which records the id → slug/semester mapping so sync keeps writing to the right place even if a
+   course's derived semester ever changes). `config/courses.json` is gitignored — it contains your
+   real Canvas course ids — and, again, entirely optional: skip this step and every read-only tool
+   still works, you'll just end up with an extra `thyd/` folder once you sync instead of reusing
+   `compilers/`.
 
 ## Register with Claude Desktop
 
@@ -89,19 +106,19 @@ claude mcp add canvas -- node /absolute/path/to/canvas-mcp/dist/index.js
 
 | Tool | Description |
 |---|---|
-| `list_courses` | Lists your courses (id, code, slug, name, term); current semester by default. |
-| `list_assignments` | Lists assignments for a course, filterable by upcoming / past / missing / graded / all. |
-| `get_assignment` | Full assignment detail: description as markdown, rubric, attachments, submission state. |
-| `get_upcoming` | Merged timeline of assignments, quizzes, calendar events, and announcements due soon. |
-| `list_announcements` | Recent course announcements as markdown. |
-| `get_grades` | Your current score/grade in each course. |
-| `get_page` | A single Canvas page's body, converted to markdown. |
-| `list_modules` | A course's modules and their items (files, pages, assignments, links, …). |
+| `list_courses` | Lists your courses (id, code, slug, name, term, önn); current semester by default. |
+| `list_assignments` | Assignments for one course (or all current courses): due date, points, submitted/graded state, score, and the id `get_assignment` needs. Filterable by upcoming / past / missing / graded / all. No lectures or calendar events — use `get_upcoming` for those. |
+| `get_assignment` | Full assignment detail: description as markdown, rubric, attachments (with file ids), submission state. |
+| `get_upcoming` | Timeline for the next N days across all current courses (or one, via `course`): deadlines first each day, then a compact lectures/dæmatímar line per event. Not a substitute for `list_assignments` when you need scores or full descriptions. |
+| `list_announcements` | Recent course announcements as markdown, newest first; bodies trimmed to 600 chars by default (`full: true` for the rest). |
+| `get_grades` | Your computed grade per course (RU hides Canvas's own course totals from students) — for one course or all current ones. |
+| `get_page` | A single Canvas page's body, converted to markdown. Needs the page's `page_url` slug from `search_materials` or `list_modules` — not its title. |
+| `list_modules` | A course's modules and their items (files, pages, assignments, links, …), with ids for `download_file` / `get_page` / `get_assignment`. |
 | `download_file` | Downloads a single Canvas file to `<course>/canvas/files/...` (or a custom destination). |
-| `propose_course_mapping` | Proposes `config/courses.json` and a folder-rename plan; does not write anything. |
-| `apply_course_mapping` | Writes `config/courses.json` and performs the proposed folder renames (requires `confirm: true`). |
+| `propose_course_mapping` | Proposes a folder-rename plan for this semester's courses; does not write anything. |
+| `apply_course_mapping` | Renames the proposed folders on disk and writes `config/courses.json` (requires `confirm: true`). |
 | `sync_course` | Downloads new/changed files, modules, and pages for a course (or `"all"`); supports `dry_run`. |
-| `sync_status` | Shows manifest summary, last sync time, and stale-file count for a course. |
+| `sync_status` | Shows last sync time, tracked file/page counts, manifest size, and folder path for a course. |
 | `search_materials` | Searches files, module items, and pages by name; ranks matches and shows local sync path if already downloaded. |
 
 ## Sync folder layout
@@ -110,9 +127,12 @@ For a course with slug `thyd` in semester 5, `sync_course` writes into:
 
 ```
 onn 5/thyd/canvas/
-  files/<Canvas folder path>/<filename>       # mirrors Canvas's own folder structure
-  pages/<page-url>.md                         # each Canvas Page as markdown
-  .canvas-sync.json                           # manifest: file id -> local path, updated_at, size
+  files/<Canvas folder path>/<filename>        # mirrors Canvas's own folder structure
+  pages/<page-url>.md                          # each Canvas Page as markdown, named by its stable url slug
+  modules/03 - Lexical Analysis/                # module order preserved
+    01 - Chapter 3.pdf                           # symlink into files/ (copy if symlinks fail)
+    links.md                                     # any ExternalUrl items in the module
+  .canvas-sync.json                            # manifest: file id -> local path, updated_at, size
 ```
 
 Sync is idempotent and additive:
@@ -127,11 +147,26 @@ The same code paths are exposed as a small CLI, useful for scripting or a cron j
 through an LLM client:
 
 ```sh
-npx canvas-mcp courses                # same as list_courses
-npx canvas-mcp sync thyd              # sync one course by slug
-npx canvas-mcp sync all               # sync every current-semester course
-npx canvas-mcp sync thyd --dry-run    # report what would change, write nothing
+npx canvas-mcp courses                          # same as list_courses
+npx canvas-mcp courses --include-past           # include past semesters too
+
+npx canvas-mcp mapping                          # same as propose_course_mapping
+npx canvas-mcp mapping --semester 5             # propose for a specific önn
+npx canvas-mcp mapping --override compilers=thyd --apply
+                                                 # apply with an override (same as apply_course_mapping)
+
+npx canvas-mcp sync thyd                        # sync one course by slug
+npx canvas-mcp sync all                         # sync every current-semester course
+npx canvas-mcp sync thyd --dry-run              # report what would change, write nothing
+
+npx canvas-mcp status                           # same as sync_status, all current courses
+npx canvas-mcp status thyd                      # sync status for one course
+
+npx canvas-mcp help                             # usage (also --help / -h)
 ```
+
+Arguments are validated through the same zod schema each MCP tool uses, so e.g. `--semester abc`
+fails with a clear message instead of silently doing the wrong thing.
 
 ## Troubleshooting
 
@@ -148,8 +183,12 @@ npx canvas-mcp sync thyd --dry-run    # report what would change, write nothing
   are filtered out. Only the current (highest-derived) semester is shown by default — pass
   `include_past: true` to see older ones.
 - **Sync didn't remove a file that was deleted on Canvas** — this is intentional; sync never
-  deletes local files. Check `sync_status` for a report of files present locally but no longer on
-  Canvas, and remove them yourself if you want.
+  deletes local files. Run `sync_course` again (even with `dry_run: true`) for a
+  "removed-on-canvas" list of files present locally but no longer on Canvas, and remove them
+  yourself if you want — `sync_status` reports the manifest summary (last sync time, file/page
+  counts, folder path) but does not compare against Canvas itself.
+- **Courses land in the wrong `onn <N>` folder** — check `FIRST_TERM`; every semester number is
+  counted from that term, two terms per year (`Haustönn`, `Vorönn`).
 - **Icelandic filenames look mangled** — file and folder names keep Icelandic characters
   (`þæöðáéíóúý`); only path separators and control characters are stripped. If something still
   looks wrong, check your terminal/editor's encoding (should be UTF-8).

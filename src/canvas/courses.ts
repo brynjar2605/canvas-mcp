@@ -1,5 +1,7 @@
 import type { CanvasClient } from "./client.js";
 import type { Course } from "./types.js";
+import { loadCourseMapping, type CourseMapping, type CourseMappingEntry } from "../config.js";
+
 
 /** Compact, LLM-friendly course record used across all tools. */
 export interface CourseInfo {
@@ -90,24 +92,55 @@ export async function currentCourses(client: CanvasClient): Promise<CourseInfo[]
 
 export class CourseNotFoundError extends Error {
   constructor(ref: string | number, available: CourseInfo[]) {
-    super(
-      `No course matches "${ref}". Available: ${available.map((c) => `${c.slug} (${c.id})`).join(", ")}`,
-    );
+    const currentSem = currentSemesterOf(available);
+    const current = available.filter((c) => c.semester === currentSem).map((c) => c.slug);
+    const hasOlder = available.some((c) => c.semester !== currentSem);
+    const currentPart =
+      current.length > 0
+        ? `Current courses: ${current.join(", ")}.`
+        : `Available: ${available.map((c) => `${c.slug} (${c.id})`).join(", ")}.`;
+    const pastNote = hasOlder
+      ? " (Older semesters are also searchable by slug — run list_courses with include_past: true to see them.)"
+      : "";
+    super(`No course matches "${ref}". ${currentPart}${pastNote}`);
     this.name = "CourseNotFoundError";
   }
 }
 
 /**
- * Resolve a user-supplied course reference — numeric id, slug ("thyd"), full code ("T-603-THYD"),
- * case-insensitive. Prefers the current semester when a slug repeats across semesters.
+ * Resolve a user-supplied course reference against, in order:
+ *  1. numeric id, slug ("thyd"), or full code ("T-603-THYD") — case-insensitive, exact.
+ *  2. the local folder name recorded in `config/courses.json` by apply_course_mapping
+ *     (e.g. "compilers" mapped to "thyd") — case-insensitive, exact.
+ *  3. a case-insensitive substring (>= 4 chars) of the course's display name — only
+ *     when that substring is unique across all courses, so "Þýðendur" or "styrikerfi"
+ *     works without risking a wrong match on a short, ambiguous fragment.
+ * Prefers the current semester when a slug repeats across semesters. `courseMapping`
+ * defaults to reading `config/courses.json`; tests can inject a fake one directly.
  */
-export async function resolveCourse(client: CanvasClient, ref: string | number): Promise<CourseInfo> {
+export async function resolveCourse(
+  client: CanvasClient,
+  ref: string | number,
+  courseMapping: CourseMapping = loadCourseMapping(),
+): Promise<CourseInfo> {
   const all = await listCourses(client);
   const s = String(ref).trim().toLowerCase();
   const asId = Number(s);
-  const matches = all.filter(
-    (c) => c.id === asId || c.slug === s || c.code.toLowerCase() === s,
-  );
-  if (matches.length === 0) throw new CourseNotFoundError(ref, all);
-  return matches[0]!; // listCourses is sorted newest-semester first
+
+  const exact = all.filter((c) => c.id === asId || c.slug === s || c.code.toLowerCase() === s);
+  if (exact.length > 0) return exact[0]!; // listCourses is sorted newest-semester first
+
+  for (const entry of Object.values(courseMapping)) {
+    if (entry.folder && entry.folder.trim().toLowerCase() === s) {
+      const bySlug = all.find((c) => c.slug === entry.slug);
+      if (bySlug) return bySlug;
+    }
+  }
+
+  if (s.length >= 4) {
+    const nameMatches = all.filter((c) => c.name.toLowerCase().includes(s));
+    if (nameMatches.length === 1) return nameMatches[0]!;
+  }
+
+  throw new CourseNotFoundError(ref, all);
 }

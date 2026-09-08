@@ -57,5 +57,41 @@ describe("list_assignments tool", () => {
     expect(result).toMatch(/score 2\/2.*\(graded in class\)/);
     expect(result).toContain("Online essay");
     expect(result).not.toMatch(/Online essay.*\(graded in class\)/);
+    expect(result).toMatch(/\(assignment_id 5\)/);
+    expect(result).toMatch(/\(assignment_id 6\)/);
+  });
+
+  it("drops the parenthesised grade when it duplicates the score text", async () => {
+    const assignments = [
+      {
+        id: 9,
+        name: "Redundant grade",
+        due_at: "2026-09-01T00:00:00Z",
+        points_possible: 10,
+        html_url: "https://x.test/9",
+        submission: { workflow_state: "graded", score: 8, grade: "8/10" },
+      },
+      {
+        id: 10,
+        name: "Letter grade",
+        due_at: "2026-09-01T00:00:00Z",
+        points_possible: 10,
+        html_url: "https://x.test/10",
+        submission: { workflow_state: "graded", score: 9, grade: "A" },
+      },
+    ];
+    const fetchImpl: FetchImpl = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/api/v1/courses") return jsonResponse(COURSES);
+      if (url.pathname === "/api/v1/courses/1/assignments") return jsonResponse(assignments);
+      throw new Error(`unexpected path: ${url.pathname}`);
+    };
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+
+    const result = await tool.handler({ course: "thyd", filter: "all" }, { client, config: fakeConfig() });
+
+    expect(result).toMatch(/Redundant grade — .+ — score 8\/10 \(assignment_id 9\)/);
+    expect(result).not.toMatch(/score 8\/10 \(8\/10\)/);
+    expect(result).toMatch(/Letter grade — .+ — score 9\/10 \(A\) \(assignment_id 10\)/);
   });
 });

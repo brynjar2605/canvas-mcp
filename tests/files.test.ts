@@ -317,6 +317,81 @@ describe("listAllFiles — TEMPLATE FILES exclusion in listing mode", () => {
     expect(result.files.some((f) => f.id === 999)).toBe(false);
     expect(result.files.map((f) => f.id).sort()).toEqual([101, 102, 103]);
   });
+
+  it("does not exclude a legitimately-named folder that merely starts with 'Template Files'", async () => {
+    const folders: Folder[] = [
+      ...FOLDERS,
+      {
+        id: 4,
+        name: "Template Files Overview",
+        full_name: "course files/Template Files Overview",
+        parent_folder_id: 1,
+        files_count: 1,
+        folders_count: 0,
+      },
+    ];
+    const files: CanvasFile[] = [
+      ...FILES,
+      {
+        id: 998,
+        display_name: "overview.pdf",
+        filename: "overview.pdf",
+        folder_id: 4,
+        size: 1,
+        "content-type": "application/pdf",
+        url: "https://cdn.test/998",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = new URL(typeof input === "string" ? input : input.toString());
+      if (url.pathname === "/api/v1/courses/9/folders") return jsonResponse(folders);
+      if (url.pathname === "/api/v1/courses/9/files") return jsonResponse(files);
+      return new Response("not found", { status: 404 });
+    };
+    const client = new CanvasClient(
+      { baseUrl: "https://cdn.test", token: "t", schoolRoot: "/tmp", currentSemester: 5 },
+      { fetchImpl, sleep: async () => {} }
+    );
+
+    const result = await listAllFilesWithMeta(client, 9);
+    expect(result.files.some((f) => f.id === 998)).toBe(true);
+  });
+});
+
+describe("listAllFiles — unknown folder_id bucket", () => {
+  it("buckets a file whose folder_id isn't in the folders listing under files/_unknown-folder, and does not apply the TEMPLATE FILES exclusion to it", async () => {
+    const files: CanvasFile[] = [
+      ...FILES,
+      {
+        id: 997,
+        display_name: "orphan.png",
+        filename: "orphan.png",
+        folder_id: 999999, // not present in FOLDERS at all
+        size: 1,
+        "content-type": "image/png",
+        url: "https://cdn.test/997",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = new URL(typeof input === "string" ? input : input.toString());
+      if (url.pathname === "/api/v1/courses/9/folders") return jsonResponse(FOLDERS);
+      if (url.pathname === "/api/v1/courses/9/files") return jsonResponse(files);
+      return new Response("not found", { status: 404 });
+    };
+    const client = new CanvasClient(
+      { baseUrl: "https://cdn.test", token: "t", schoolRoot: "/tmp", currentSemester: 5 },
+      { fetchImpl, sleep: async () => {} }
+    );
+
+    const result = await listAllFilesWithMeta(client, 9);
+    const orphan = result.files.find((f) => f.id === 997);
+    expect(orphan).toBeDefined();
+    expect(orphan?.folderPath).toBe("_unknown-folder");
+    // Distinct from the root folder, which resolves to "".
+    expect(result.files.find((f) => f.id === 101)?.folderPath).toBe("");
+  });
 });
 
 describe("downloadFile", () => {

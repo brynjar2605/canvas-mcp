@@ -66,4 +66,37 @@ describe("getPage", () => {
     const client = clientRespondingWith(403, "forbidden");
     await expect(getPage(client, 1, "nope")).rejects.toThrow(/not found/i);
   });
+
+  it("rejects a page url containing a path separator instead of hitting an arbitrary endpoint", async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      calls.push(typeof input === "string" ? input : input.toString());
+      return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+
+    await expect(getPage(client, 1, "../../users/self")).rejects.toThrow(/invalid page url/i);
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a page url containing '..' even without a slash", async () => {
+    const fetchImpl: typeof fetch = async () => new Response("{}", { status: 200 });
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+    await expect(getPage(client, 1, "..")).rejects.toThrow(/invalid page url/i);
+  });
+
+  it("percent-encodes an otherwise-safe url before requesting it", async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      calls.push(typeof input === "string" ? input : input.toString());
+      return new Response(JSON.stringify({ url: "week 1", title: "Week 1", body: "<p>hi</p>" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+
+    await getPage(client, 1, "week 1");
+    expect(calls[0]).toContain("/pages/week%201");
+  });
 });

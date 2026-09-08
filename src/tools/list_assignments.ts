@@ -20,7 +20,9 @@ function formatAssignmentLine(a: AssignmentSummary): string {
   if (a.missing) {
     status = "MISSING";
   } else if (a.score !== null) {
-    const scoreText = `score ${a.score}${a.pointsPossible !== null ? `/${a.pointsPossible}` : ""}${a.grade ? ` (${a.grade})` : ""}`;
+    const rawScoreText = `${a.score}${a.pointsPossible !== null ? `/${a.pointsPossible}` : ""}`;
+    const gradePart = a.grade && a.grade !== rawScoreText ? ` (${a.grade})` : "";
+    const scoreText = `score ${rawScoreText}${gradePart}`;
     // "submitted ✓" would misleadingly imply an online submission — this was graded in class instead.
     status = isInClassOnly(a.submissionTypes) ? `${scoreText} (graded in class)` : scoreText;
   } else if (a.submitted) {
@@ -30,15 +32,23 @@ function formatAssignmentLine(a: AssignmentSummary): string {
   }
   if (a.late) status += ", late";
 
-  return `- [${a.courseSlug}] ${a.name} — ${due} — ${points} — ${status} (id ${a.id})`;
+  return `- [${a.courseSlug}] ${a.name} — ${due} — ${points} — ${status} (assignment_id ${a.id})`;
 }
 
 export const tool = defineTool({
   name: "list_assignments",
   description:
-    "List assignments for one course or all current courses. Filter by upcoming/past/missing/graded/all (default all).",
+    "Assignments for one course (or all current courses), with due date, points, submitted/graded state, " +
+    "score, and the assignment_id needed by get_assignment. filter: 'upcoming' (due in the next `days`, default " +
+    "30), 'past', 'missing', 'graded' (has a score — use this for 'did I pass X?'), or 'all' (default). Does " +
+    "not include lectures or calendar events — use get_upcoming for those.",
   inputSchema: {
-    course: z.string().optional().describe("Course slug, code, or id. Omit for all current-semester courses."),
+    course: z
+      .union([z.string(), z.number()])
+      .optional()
+      .describe(
+        'Course slug like "thyd", full code like "T-603-THYD", numeric Canvas id, or a distinctive word from the course name. Omit for all current-semester courses.',
+      ),
     filter: z.enum(FILTERS).optional().describe("upcoming | past | missing | graded | all (default all)."),
     days: z
       .number()

@@ -43,6 +43,25 @@ describe("listAnnouncements", () => {
     expect(result[0]).toMatchObject({ courseSlug: "thyd", courseId: 1, bodyMarkdown: "new" });
   });
 
+  it("strips the verifier query param from links in the body", async () => {
+    const raw = [
+      {
+        id: 4,
+        title: "Handout",
+        message: '<p>See <a href="https://x.test/files/1/download?verifier=abc&amp;wrap=1">handout</a></p>',
+        posted_at: "2026-09-01T00:00:00Z",
+        context_code: "course_1",
+        html_url: "https://x.test/4",
+      },
+    ];
+    const fetchImpl = vi.fn<FetchImpl>().mockResolvedValue(jsonResponse(raw));
+    const client = new CanvasClient(fakeConfig(), { fetchImpl, sleep: async () => {} });
+
+    const result = await listAnnouncements(client, courses, 30);
+    expect(result[0]!.bodyMarkdown).not.toContain("verifier");
+    expect(result[0]!.bodyMarkdown).toContain("(https://x.test/files/1/download?wrap=1)");
+  });
+
   it("skips announcements whose context_code doesn't match a known course", async () => {
     const raw = [
       { id: 3, title: "Unknown course", message: null, posted_at: "2026-09-01T00:00:00Z", context_code: "course_999", html_url: "https://x.test/3" },

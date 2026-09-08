@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { currentCourses, resolveCourse } from "../canvas/courses.js";
-import { canvasDir } from "../config.js";
+import { ConfigError, folderForCourse } from "../config.js";
 import { loadManifest } from "../sync/manifest.js";
 import { defineTool } from "./_types.js";
 
@@ -26,12 +26,17 @@ export const tool = defineTool({
 
     const lines: string[] = [];
     for (const course of targets) {
-      if (course.semester === null) {
-        lines.push(`${course.slug}: no derivable semester — cannot locate its canvas/ dir.`);
-        continue;
+      let dir: string;
+      try {
+        ({ dir } = folderForCourse(course, ctx.config));
+      } catch (err) {
+        if (err instanceof ConfigError) {
+          lines.push(`${course.slug}: no derivable semester — cannot locate its canvas/ dir.`);
+          continue;
+        }
+        throw err;
       }
 
-      const dir = canvasDir(course.slug, course.semester, ctx.config);
       if (!existsSync(dir)) {
         lines.push(`${course.slug}: never synced (${dir} does not exist).`);
         continue;

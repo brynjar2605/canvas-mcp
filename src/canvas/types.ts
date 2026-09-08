@@ -132,6 +132,8 @@ export interface PlannableDetails {
   /** Present when `plannable_type` is "calendar_event" — the event's own start/end. */
   start_at?: string | null;
   end_at?: string | null;
+  /** Room/location for a calendar_event plannable, when Canvas has one (e.g. "M120"). */
+  location_name?: string | null;
 }
 
 export interface PlannerItem {
@@ -153,6 +155,8 @@ export interface CalendarEvent {
   description?: string | null;
   context_code: string;
   html_url: string;
+  /** Room/location Canvas has on file for the event (e.g. "M120"), when set. */
+  location_name?: string | null;
 }
 
 export interface Announcement {

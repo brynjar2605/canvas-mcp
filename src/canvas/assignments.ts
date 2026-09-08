@@ -1,7 +1,7 @@
 import type { CanvasClient } from "./client.js";
 import type { CourseInfo } from "./courses.js";
 import type { Assignment, RubricCriterion } from "./types.js";
-import { htmlToMarkdown } from "../util/html.js";
+import { decodeHtmlEntities, htmlToMarkdown, stripVerifierParams } from "../util/html.js";
 
 export type AssignmentFilter = "upcoming" | "past" | "missing" | "graded" | "all";
 
@@ -30,6 +30,8 @@ export interface RubricItem {
 export interface AssignmentAttachment {
   name: string;
   url: string;
+  /** Canvas file id parsed out of the url, when the link is a /files/:id link. null otherwise. */
+  fileId: number | null;
 }
 
 export interface AssignmentDetail extends AssignmentSummary {
@@ -150,17 +152,25 @@ export async function listAssignments(
 
 const FILE_LINK_RE = /<a\b[^>]*href=["']([^"']*\/files\/[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
 const TAG_RE = /<[^>]+>/g;
+const FILE_ID_RE = /\/files\/(\d+)/;
 
-/** Pulls `<a href=".../files/...">name</a>` links out of an assignment description as attachments. */
+/** Pulls `<a href=".../files/...">name</a>` links out of an assignment description as attachments.
+ * Canvas HTML-escapes the href attribute (so `?verifier=x&wrap=1` shows up as `&amp;wrap=1`), and
+ * the link text can carry entities too — both are decoded here. The verifier itself is stripped
+ * from the displayed url since it's a one-time per-user token with no value to the LLM; the file
+ * id (needed by download_file) is parsed out separately so it survives that stripping. */
 function extractAttachments(html: string | null | undefined): AssignmentAttachment[] {
   if (!html) return [];
   const attachments: AssignmentAttachment[] = [];
   let match: RegExpExecArray | null;
   FILE_LINK_RE.lastIndex = 0;
   while ((match = FILE_LINK_RE.exec(html)) !== null) {
-    const url = match[1]!;
-    const name = match[2]!.replace(TAG_RE, "").trim() || url;
-    attachments.push({ name, url });
+    const rawUrl = decodeHtmlEntities(match[1]!);
+    const url = stripVerifierParams(rawUrl);
+    const name = decodeHtmlEntities(match[2]!.replace(TAG_RE, "").trim()) || url;
+    const idMatch = FILE_ID_RE.exec(rawUrl);
+    const fileId = idMatch ? Number(idMatch[1]) : null;
+    attachments.push({ name, url, fileId });
   }
   return attachments;
 }

@@ -16,6 +16,11 @@ export interface UpcomingItem {
   htmlUrl: string | null;
   /** ISO datetime, e.g. for lectures/labs with a known end time. null/absent when Canvas gave none. */
   endDate?: string | null;
+  /** Canvas id of the underlying assignment/quiz/discussion/event (`plannable_id` / event id).
+   * null only when Canvas gave no id at all. */
+  contentId: number | null;
+  /** Room/location for a calendar event, when Canvas has one on file. */
+  location: string | null;
 }
 
 export const DEFAULT_UPCOMING_DAYS = 14;
@@ -73,6 +78,8 @@ function plannerItemToUpcoming(item: PlannerItem, byId: Map<number, CourseInfo>)
     // Present when plannable_type is "calendar_event" — Canvas nests the full
     // event (including end_at) under `plannable` for those planner items.
     endDate: item.plannable.end_at ?? null,
+    contentId: item.plannable_id,
+    location: item.plannable.location_name ?? null,
   };
 }
 
@@ -95,6 +102,8 @@ function calendarEventToUpcoming(event: CalendarEvent, byId: Map<number, CourseI
     submitted: null,
     htmlUrl: event.html_url ?? null,
     endDate: event.end_at ?? null,
+    contentId: event.id,
+    location: event.location_name ?? null,
   };
 }
 
@@ -170,11 +179,15 @@ function pad2(n: number): string {
 
 /**
  * Formats an ISO datetime for display in Atlantic/Reykjavik (UTC, no DST —
- * so this is a plain UTC render, no timezone conversion needed): "Mon 14 Sep 23:59".
+ * so this is a plain UTC render, no timezone conversion needed): "Mon 14 Sep
+ * 23:59", or "Mon 14 Sep 2025 23:59" when the date isn't in the current
+ * calendar year (e.g. an `include_past` course from a previous year) — the
+ * bare form would otherwise look undated for those.
  */
-export function formatReykjavikDateTime(iso: string): string {
+export function formatReykjavikDateTime(iso: string, now: Date = new Date()): string {
   const d = new Date(iso);
-  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+  const yearPart = d.getUTCFullYear() !== now.getUTCFullYear() ? ` ${d.getUTCFullYear()}` : "";
+  return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}${yearPart} ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
 }
 
 /** Formats an ISO datetime's date-only part for day-grouping headers: "Mon 14 Sep". */

@@ -86,7 +86,7 @@ describe("applyMapping", () => {
 
     const mapping = JSON.parse(readFileSync(mappingPath, "utf-8")) as CourseMapping;
     expect(mapping["10488"]).toEqual({ code: "T-503-POSH", slug: "posh", semester: 5 });
-    expect(mapping["10495"]).toEqual({ code: "T-603-THYD", slug: "thyd", semester: 5 });
+    expect(mapping["10495"]).toEqual({ code: "T-603-THYD", slug: "thyd", semester: 5, folder: "compilers" });
 
     expect(log.some((l) => l.includes("renamed"))).toBe(true);
     expect(log.some((l) => l.includes("created"))).toBe(true);
@@ -111,5 +111,33 @@ describe("applyMapping", () => {
     const proposal = proposeMapping(SEM5_COURSES, 5, EXISTING_FOLDERS);
     await applyMapping(proposal, { schoolRoot, mappingPath });
     expect(existsSync(join(schoolRoot, "onn 5", "compilers"))).toBe(true);
+  });
+
+  it("records folder for a real rename, not for a case-only rename or a keep/create", async () => {
+    const proposal = proposeMapping(SEM5_COURSES, 5, EXISTING_FOLDERS, { compilers: "thyd" });
+    await applyMapping(proposal, { schoolRoot, mappingPath });
+
+    const mapping = JSON.parse(readFileSync(mappingPath, "utf-8")) as CourseMapping;
+    expect(mapping["10495"]).toMatchObject({ slug: "thyd", folder: "compilers" }); // real rename
+    expect(mapping["10488"]).not.toHaveProperty("folder"); // posh: case-only rename (POSH -> posh)
+    expect(mapping["10483"]).not.toHaveProperty("folder"); // tsam: kept
+    expect(mapping["10492"]).not.toHaveProperty("folder"); // veft: kept
+    expect(mapping["10487"]).not.toHaveProperty("folder"); // mapp: created
+  });
+
+  it("preserves a recorded folder across a later apply where the entry is kept", async () => {
+    const firstProposal = proposeMapping(SEM5_COURSES, 5, EXISTING_FOLDERS, { compilers: "thyd" });
+    await applyMapping(firstProposal, { schoolRoot, mappingPath });
+
+    // Re-propose against the post-apply folder layout — every course's
+    // folder now already matches its slug, so every entry is "keep".
+    const onDiskFolders = readdirSync(join(schoolRoot, "onn 5"));
+    const secondProposal = proposeMapping(SEM5_COURSES, 5, onDiskFolders);
+    expect(secondProposal.entries.every((e) => e.action === "keep")).toBe(true);
+
+    await applyMapping(secondProposal, { schoolRoot, mappingPath });
+
+    const mapping = JSON.parse(readFileSync(mappingPath, "utf-8")) as CourseMapping;
+    expect(mapping["10495"]).toMatchObject({ slug: "thyd", folder: "compilers" });
   });
 });

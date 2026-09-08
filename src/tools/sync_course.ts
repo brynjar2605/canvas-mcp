@@ -3,10 +3,22 @@ import { currentCourses, resolveCourse } from "../canvas/courses.js";
 import { syncCourse, type SyncReport } from "../sync/engine.js";
 import { defineTool } from "./_types.js";
 
-/** Renders a SyncReport as plain text, used by both this tool and the CLI. */
+/** Cap on how many `+`/`~` change lines are printed before collapsing into "… and N more". */
+const CHANGE_LINE_CAP = 40;
+
+/** Renders a SyncReport as plain text, used by both this tool and the CLI.
+ *
+ * Layout: the absolute canvas/ dir (once), the summary counts, then
+ * added/updated lines capped at CHANGE_LINE_CAP (so a big first sync doesn't
+ * flood the transcript), then ALL failures and warnings uncapped — those are
+ * the lines a user actually needs to see and act on — then removals. */
 export function formatSyncReport(r: SyncReport): string {
+  const lines: string[] = [];
+  if (r.dir) lines.push(`→ ${r.dir}`);
+
   const summary = `${r.slug}${r.dryRun ? " (dry run)" : ""}: +${r.added.length} added, ~${r.updated.length} updated, ${r.skipped} skipped, ${r.failed.length} failed, ${r.removedOnCanvas.length} removed-on-canvas`;
-  const lines = [summary];
+  lines.push(summary);
+
   if (r.source === "discovered") {
     const fileCount = r.added.length + r.updated.length + r.skipped;
     lines.push(
@@ -15,10 +27,17 @@ export function formatSyncReport(r: SyncReport): string {
         ` (may be incomplete)`,
     );
   }
-  for (const p of r.added) lines.push(`  + ${p}`);
-  for (const p of r.updated) lines.push(`  ~ ${p}`);
+
+  const changeLines = [...r.added.map((p) => `  + ${p}`), ...r.updated.map((p) => `  ~ ${p}`)];
+  for (const l of changeLines.slice(0, CHANGE_LINE_CAP)) lines.push(l);
+  if (changeLines.length > CHANGE_LINE_CAP) {
+    lines.push(`  … and ${changeLines.length - CHANGE_LINE_CAP} more`);
+  }
+
   for (const f of r.failed) lines.push(`  ! ${f.path}: ${f.error}`);
+  for (const w of r.warnings ?? []) lines.push(`  ${w}`);
   for (const p of r.removedOnCanvas) lines.push(`  x ${p} (missing on Canvas — left on disk)`);
+
   return lines.join("\n");
 }
 

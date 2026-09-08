@@ -15,11 +15,14 @@ export const tool = defineTool({
   handler: async (input, ctx) => {
     const courses = input.include_past ? await listCourses(ctx.client) : await currentCourses(ctx.client);
     if (courses.length === 0) {
-      return "No courses found.";
+      return (
+        "No courses matched. Only real RU courses (code like T-603-THYD) are listed; announcement and video " +
+        "shells are filtered out. Try include_past: true, or check that CANVAS_TOKEN belongs to the right account."
+      );
     }
-    const header = "| slug | code | name | term | önn |\n| --- | --- | --- | --- | --- |";
+    const header = "| id | slug | code | name | term | önn |\n| --- | --- | --- | --- | --- | --- |";
     const rows = courses.map(
-      (c) => `| ${c.slug} | ${c.code} | ${c.name} | ${c.term ?? "-"} | ${c.semester ?? "-"} |`,
+      (c) => `| ${c.id} | ${c.slug} | ${c.code} | ${c.name} | ${c.term ?? "-"} | ${c.semester ?? "-"} |`,
     );
     return [header, ...rows].join("\n");
   },

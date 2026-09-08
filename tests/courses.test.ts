@@ -74,4 +74,39 @@ describe("listCourses / currentCourses / resolveCourse", () => {
     expect((await resolveCourse(c, "t-409-tsam")).id).toBe(10483);
     await expect(resolveCourse(c, "nope")).rejects.toThrow(/No course matches "nope"/);
   });
+
+  it("lists current-semester courses first in the not-found error", async () => {
+    const c = fakeClient();
+    await expect(resolveCourse(c, "nope")).rejects.toThrow(/Current courses: thyd, tsam\./);
+  });
+
+  it("resolves by a unique, case-insensitive substring of the course name (>= 4 chars)", async () => {
+    const c = fakeClient();
+    expect((await resolveCourse(c, "þýðendur")).slug).toBe("thyd");
+    expect((await resolveCourse(c, "STRJÁL")).slug).toBe("str1");
+    // Too short to trust as a name fragment — falls through to not-found.
+    await expect(resolveCourse(c, "tol")).rejects.toThrow(/No course matches "tol"/);
+  });
+
+  it("does not resolve an ambiguous name substring shared by two courses", async () => {
+    const ambiguous = [
+      { id: 1, name: "Forritun 1", course_code: "T-101-FOR1", workflow_state: "available", term: { id: 1, name: "Haustönn 2026" } },
+      { id: 2, name: "Forritun 2", course_code: "T-102-FOR2", workflow_state: "available", term: { id: 1, name: "Haustönn 2026" } },
+    ];
+    const fetchImpl: typeof fetch = async () =>
+      new Response(JSON.stringify(ambiguous), { status: 200, headers: { "content-type": "application/json" } });
+    const client = new CanvasClient(
+      { baseUrl: "https://x.test", token: "t", schoolRoot: "/tmp", currentSemester: 5 },
+      { fetchImpl, sleep: async () => {} },
+    );
+    await expect(resolveCourse(client, "forritun")).rejects.toThrow(/No course matches "forritun"/);
+  });
+
+  it("resolves a local folder name recorded in the course mapping", async () => {
+    const c = fakeClient();
+    const mapping = {
+      "10495": { code: "T-603-THYD", slug: "thyd", semester: 5, folder: "compilers" },
+    } as unknown as Parameters<typeof resolveCourse>[2];
+    expect((await resolveCourse(c, "compilers", mapping)).slug).toBe("thyd");
+  });
 });

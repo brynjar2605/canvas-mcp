@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { CourseInfo } from "../canvas/courses.js";
-import type { CourseMapping } from "../config.js";
+import type { CourseMapping, CourseMappingEntry } from "../config.js";
 import { loadCourseMapping, saveCourseMapping } from "../config.js";
 import { renameDirSafe } from "../util/fs.js";
 
@@ -150,11 +150,27 @@ export async function applyMapping(
       log.push(`kept: ${entry.slug}`);
     }
 
-    mapping[String(entry.courseId)] = {
+    // Record the pre-rename folder name so resolveCourse() can keep
+    // honouring it, but only for a "real" rename — a case-only rename
+    // (POSH -> posh) isn't a name the user would ever have typed differently.
+    // Once recorded, a later "keep" run (folder already matches slug) must
+    // not drop it, so fall back to whatever was already on disk.
+    const previous = mapping[String(entry.courseId)] as
+      | (CourseMappingEntry & { folder?: string })
+      | undefined;
+    const isRealRename =
+      entry.action === "rename" &&
+      !!entry.existingFolder &&
+      entry.existingFolder.toLowerCase() !== entry.slug.toLowerCase();
+    const folder = isRealRename ? entry.existingFolder! : previous?.folder;
+
+    const newEntry: CourseMappingEntry = {
       code: entry.code,
       slug: entry.slug,
       semester: proposal.semester,
     };
+    if (folder) newEntry.folder = folder;
+    mapping[String(entry.courseId)] = newEntry;
   }
 
   saveCourseMapping(mapping, opts.mappingPath);
