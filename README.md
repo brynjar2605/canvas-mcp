@@ -1,5 +1,7 @@
 # canvas-mcp
 
+> **Scope note.** Built for one student's Reykjavík University Canvas (`reykjavik.instructure.com`). The client, pagination and sync are generic Canvas-API code, but several behaviours encode RU specifics: course codes shaped `T-603-THYD` → slug `thyd`, semester numbers derived from `Haustönn`/`Vorönn` term names, a hidden Files tab in most courses (files are discovered through modules, pages, assignments and announcements), hidden grade totals, and Turnitin submissions reported as `pending_review`. Expect to adjust `src/canvas/courses.ts` and `calendar.ts` for another institution. MIT licensed.
+
 A read-only [MCP](https://modelcontextprotocol.io) server for Reykjavík University's Canvas
 (`reykjavik.instructure.com`), plus a sync engine that mirrors course material (files, pages,
 modules) to disk under `~/Documents/Tolvunarfraedi/onn <N>/<course>/canvas/`.
