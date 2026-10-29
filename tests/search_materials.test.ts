@@ -118,13 +118,13 @@ describe("search_materials tool", () => {
   it("merges a file that also appears as a module item into one line, with module context appended", async () => {
     const files = [
       {
-        id: 2672865,
+        id: 9001,
         display_name: "YB_Chapter_03_LexicalAnalysis.pdf",
         filename: "YB_Chapter_03_LexicalAnalysis.pdf",
         folder_id: null,
         size: 106496,
         "content-type": "application/pdf",
-        url: "https://x.test/2672865",
+        url: "https://x.test/9001",
         updated_at: "2026-01-01T00:00:00Z",
       },
     ];
@@ -135,7 +135,7 @@ describe("search_materials tool", () => {
         position: 1,
         items: [
           { id: 200, title: "Slides", type: "SubHeader" },
-          { id: 201, title: "Chapter 3: Lexical Analysis", type: "File", content_id: 2672865 },
+          { id: 201, title: "Chapter 3: Lexical Analysis", type: "File", content_id: 9001 },
         ],
       },
     ];
@@ -155,11 +155,11 @@ describe("search_materials tool", () => {
       { client, config: fakeConfig() },
     );
 
-    const fileIdOccurrences = (result.match(/file_id 2672865/g) ?? []).length;
+    const fileIdOccurrences = (result.match(/file_id 9001/g) ?? []).length;
     expect(fileIdOccurrences).toBe(1);
     expect(result).toContain("YB_Chapter_03_LexicalAnalysis.pdf");
     expect(result).toContain('in module "Front End" › Chapter 3: Lexical Analysis');
-    expect(result).not.toContain("module: \"Front End\" › Chapter 3: Lexical Analysis (file_id=2672865)");
+    expect(result).not.toContain("module: \"Front End\" › Chapter 3: Lexical Analysis (file_id=9001)");
   });
 
   it("merges a page that also appears as a module item into one line, with module context appended", async () => {

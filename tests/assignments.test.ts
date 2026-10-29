@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CanvasClient } from "../src/canvas/client.js";
 import { formatScoreWithGrade, getAssignment, isInClassOnly, listAssignments } from "../src/canvas/assignments.js";
 import type { CourseInfo } from "../src/canvas/courses.js";
@@ -64,6 +64,15 @@ const fixture = [
 ];
 
 describe("listAssignments filters", () => {
+  // Pin the clock to the "today" the fixture assumes so the windows stay stable.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-08T12:00:00Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("'all' returns everything sorted by due date, null-due last", async () => {
     const result = await listAssignments(clientReturning(fixture), course, "all");
     expect(result.map((a) => a.id)).toEqual([1, 2, 3, 6, 4]);
@@ -179,14 +188,14 @@ describe("getAssignment", () => {
       points_possible: null,
       html_url: "https://x.test/44",
       description:
-        '<p><a href="https://x.test/files/2712565/download?verifier=abc123&amp;wrap=1">Skjal &amp; gögn.pdf</a></p>',
+        '<p><a href="https://x.test/files/7101/download?verifier=abc123&amp;wrap=1">Skjal &amp; gögn.pdf</a></p>',
     };
     const detail = await getAssignment(clientReturning(raw), course, 44);
     expect(detail.attachments).toEqual([
       {
         name: "Skjal & gögn.pdf",
-        url: "https://x.test/files/2712565/download?wrap=1",
-        fileId: 2712565,
+        url: "https://x.test/files/7101/download?wrap=1",
+        fileId: 7101,
       },
     ]);
   });

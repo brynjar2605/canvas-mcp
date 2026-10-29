@@ -163,19 +163,19 @@ describe("getUpcoming", () => {
     expect(items).toEqual([]);
   });
 
-  // Live data from reykjavik.instructure.com for tsam (course 2) on 2026-09-09: the planner
+  // Modelled on real Canvas data (ids anonymised) for tsam (course 2) on 2026-09-09: the planner
   // (already scoped to the caller's own section) returns exactly one Dæmatímar — the
-  // "child" event 944371, whose calendar_events copy carries parent_event_id 944370 and
-  // context_code course_section_13627. /calendar_events for the whole course additionally
+  // "child" event 3011, whose calendar_events copy carries parent_event_id 3010 and
+  // context_code course_section_77. /calendar_events for the whole course additionally
   // returns SIX course-wide "parent" events (one per section per timeslot, each with
-  // child_events_count: 1, parent_event_id: null, context_code course_10483) plus one
+  // child_events_count: 1, parent_event_id: null, context_code course_1002) plus one
   // course-wide lecture (child_events_count: 0). Only the caller's own lab and the lecture
   // must survive; the five other sections' parents must not.
   it("drops course-wide parent events (child_events_count > 0) but keeps the caller's own section and course-wide lectures", async () => {
     const plannerItems = [
       {
         plannable_type: "calendar_event",
-        plannable_id: 944371,
+        plannable_id: 3011,
         plannable_date: "2026-09-09T08:30:00Z",
         course_id: 2,
         plannable: {
@@ -184,24 +184,24 @@ describe("getUpcoming", () => {
           end_at: "2026-09-09T10:10:00Z",
           location_name: "M120",
         },
-        html_url: "https://x.test/event/944371",
+        html_url: "https://x.test/event/3011",
         submissions: false,
       },
     ];
     const calendarEvents = [
       // Parents for all six section slots (three timeslots x two other courses' worth of
       // sections in this fixture) — none of these belong to the caller and must be dropped.
-      { id: 944370, title: "M120 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T08:30:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944370" },
-      { id: 944800, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T08:30:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944800" },
-      { id: 944392, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T10:10:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944392" },
-      { id: 944824, title: "M120 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T10:10:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944824" },
-      { id: 944774, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T12:40:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/944774" },
-      { id: 949233, title: "M123 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T16:50:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/949233" },
+      { id: 3010, title: "M120 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T08:30:00Z", context_code: "course_1002", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/3010" },
+      { id: 3014, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T08:30:00Z", context_code: "course_1002", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/3014" },
+      { id: 3012, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T10:10:00Z", context_code: "course_1002", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/3012" },
+      { id: 3015, title: "M120 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T10:10:00Z", context_code: "course_1002", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/3015" },
+      { id: 3013, title: "M121 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T12:40:00Z", context_code: "course_1002", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/3013" },
+      { id: 3020, title: "M123 - Tölvusamskipti - Dæmatímar", start_at: "2026-09-09T16:50:00Z", context_code: "course_1002", parent_event_id: null, child_events_count: 1, html_url: "https://x.test/event/3020" },
       // Course-wide lecture (no sections) — must stay.
-      { id: 934198, title: "M101 - Tölvusamskipti - Fyrirlestrar", start_at: "2026-09-09T12:40:00Z", context_code: "course_10483", parent_event_id: null, child_events_count: 0, html_url: "https://x.test/event/934198" },
+      { id: 3000, title: "M101 - Tölvusamskipti - Fyrirlestrar", start_at: "2026-09-09T12:40:00Z", context_code: "course_1002", parent_event_id: null, child_events_count: 0, html_url: "https://x.test/event/3000" },
       // The caller's own section's child event — also appears in calendar_events, but
-      // dedupes against the planner's copy of id 944371.
-      { id: 944371, title: "M120 - Tölvusamskipti - Dæmatímar (Hópur 1)", start_at: "2026-09-09T08:30:00Z", context_code: "course_section_13627", parent_event_id: 944370, child_events_count: 0, html_url: "https://x.test/event/944371" },
+      // dedupes against the planner's copy of id 3011.
+      { id: 3011, title: "M120 - Tölvusamskipti - Dæmatímar (Hópur 1)", start_at: "2026-09-09T08:30:00Z", context_code: "course_section_77", parent_event_id: 3010, child_events_count: 0, html_url: "https://x.test/event/3011" },
     ];
 
     const fetchImpl = vi.fn<FetchImpl>().mockImplementation(async (input) => {
@@ -217,21 +217,21 @@ describe("getUpcoming", () => {
 
     expect(dayItems).toHaveLength(2);
 
-    const lab = dayItems.find((i) => i.contentId === 944371)!;
+    const lab = dayItems.find((i) => i.contentId === 3011)!;
     expect(lab).toBeTruthy();
     expect(lab.title).toBe("M120 - Tölvusamskipti - Dæmatímar");
     expect(lab.section).toBe("Hópur 1");
     expect(parseEventTitle(lab.title)).toEqual({ room: "M120", kind: "Dæmatímar" });
 
-    const lecture = dayItems.find((i) => i.contentId === 934198)!;
+    const lecture = dayItems.find((i) => i.contentId === 3000)!;
     expect(lecture).toBeTruthy();
     expect(lecture.section).toBeNull();
 
-    expect(dayItems.some((i) => i.contentId === 944800)).toBe(false); // M121 08:30 — other section
-    expect(dayItems.some((i) => i.contentId === 944392)).toBe(false); // M121 10:10
-    expect(dayItems.some((i) => i.contentId === 944824)).toBe(false); // M120 10:10
-    expect(dayItems.some((i) => i.contentId === 944774)).toBe(false); // M121 12:40
-    expect(dayItems.some((i) => i.contentId === 949233)).toBe(false); // M123 16:50
+    expect(dayItems.some((i) => i.contentId === 3014)).toBe(false); // M121 08:30 — other section
+    expect(dayItems.some((i) => i.contentId === 3012)).toBe(false); // M121 10:10
+    expect(dayItems.some((i) => i.contentId === 3015)).toBe(false); // M120 10:10
+    expect(dayItems.some((i) => i.contentId === 3013)).toBe(false); // M121 12:40
+    expect(dayItems.some((i) => i.contentId === 3020)).toBe(false); // M123 16:50
   });
 
   it("keeps genuinely course-wide duplicate events (child_events_count: 0, no parent/child relationship)", async () => {

@@ -290,12 +290,12 @@ describe("listAllFiles — hidden Files tab discovery fallback", () => {
         // re-links file 203, which the page body already discovers — must not
         // produce a duplicate FileEntry.
         message:
-          '<p>See <a href="/courses/42/files/2719945?verifier=x&amp;wrap=1">W4S1_Deck.pdf</a> ' +
+          '<p>See <a href="/courses/42/files/6002?verifier=x&amp;wrap=1">W4S1_Deck.pdf</a> ' +
           'and the <a href="/courses/42/files/203/download?wrap=1">handout</a> again.</p>',
         posted_at: "2026-01-05T00:00:00Z",
         context_code: "course_42",
         html_url: "https://cdn.test/courses/42/discussion_topics/900",
-        attachments: [{ id: 2701595, display_name: "Extra.pptx" }],
+        attachments: [{ id: 6001, display_name: "Extra.pptx" }],
       },
     ];
 
@@ -313,8 +313,8 @@ describe("listAllFiles — hidden Files tab discovery fallback", () => {
       if (url.pathname === "/api/v1/files/201") return jsonResponse(discoveredFile(201, "Slides1.pdf"));
       if (url.pathname === "/api/v1/files/202") return jsonResponse(discoveredFile(202, "Slides2.pdf"));
       if (url.pathname === "/api/v1/files/203") return jsonResponse(discoveredFile(203, "Handout.pdf"));
-      if (url.pathname === "/api/v1/files/2719945") return jsonResponse(discoveredFile(2719945, "W4S1_Deck.pdf"));
-      if (url.pathname === "/api/v1/files/2701595") return jsonResponse(discoveredFile(2701595, "Extra.pptx"));
+      if (url.pathname === "/api/v1/files/6002") return jsonResponse(discoveredFile(6002, "W4S1_Deck.pdf"));
+      if (url.pathname === "/api/v1/files/6001") return jsonResponse(discoveredFile(6001, "Extra.pptx"));
       return new Response("not found", { status: 404 });
     };
     const client = new CanvasClient(
@@ -323,12 +323,12 @@ describe("listAllFiles — hidden Files tab discovery fallback", () => {
     );
 
     const result = await listAllFilesWithMeta(client, 42);
-    expect(result.files.map((f) => f.id).sort((a, b) => a - b)).toEqual([201, 202, 203, 2701595, 2719945]);
+    expect(result.files.map((f) => f.id).sort((a, b) => a - b)).toEqual([201, 202, 203, 6001, 6002]);
 
     const byId = new Map(result.files.map((f) => [f.id, f]));
     // Both the message-linked file and the attachment-linked file are fetched and tagged.
-    expect(byId.get(2719945)?.discoveredVia).toEqual(["announcement"]);
-    expect(byId.get(2701595)?.discoveredVia).toEqual(["announcement"]);
+    expect(byId.get(6002)?.discoveredVia).toEqual(["announcement"]);
+    expect(byId.get(6001)?.discoveredVia).toEqual(["announcement"]);
     // File 203 came from both the page body and the announcement — appears once, both sources recorded.
     expect(result.files.filter((f) => f.id === 203)).toHaveLength(1);
     expect(byId.get(203)?.discoveredVia?.sort()).toEqual(["announcement", "page"]);

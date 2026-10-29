@@ -183,7 +183,7 @@ describe("export_timeline tool", () => {
     const plannerItems = [
       {
         plannable_type: "assignment",
-        plannable_id: 107985,
+        plannable_id: 4001,
         plannable_date: "2026-09-07T21:00:00Z",
         course_id: 2,
         plannable: { title: "Assignment 2: Introduction to Network Engineering", points_possible: 10 },
@@ -193,11 +193,11 @@ describe("export_timeline tool", () => {
     const assignmentsByCourseId = {
       2: [
         {
-          id: 107985,
+          id: 4001,
           name: "Assignment 2: Introduction to Network Engineering",
           due_at: "2026-09-07T21:00:00Z",
           points_possible: 10,
-          html_url: "https://x.test/courses/2/assignments/107985",
+          html_url: "https://x.test/courses/2/assignments/4001",
           submission_types: ["external_tool"],
           submission: { workflow_state: "pending_review" },
         },
@@ -206,7 +206,7 @@ describe("export_timeline tool", () => {
 
     const timeline = await run(plannerItems, { days: 21, start_offset_days: -3000 }, [], assignmentsByCourseId);
 
-    const row = timeline.rows.find((r) => r.key === "assignment:107985")!;
+    const row = timeline.rows.find((r) => r.key === "assignment:4001")!;
     expect(row.status).toBe("Submitted");
     expect(row.submissionTypes).toEqual(["external_tool"]);
     expect(row.pastDue).toBe(false);

@@ -8,11 +8,11 @@ import type { CourseMapping } from "../src/config.js";
 
 // Onn-5 scenario from PLAN.md "Live findings".
 const SEM5_COURSES: CourseInfo[] = [
-  { id: 10488, code: "T-503-POSH", slug: "posh", name: "Persónuvernd og öryggi", term: "Haustönn 2026", semester: 5 },
-  { id: 10483, code: "T-409-TSAM", slug: "tsam", name: "Tölvusamskipti", term: "Haustönn 2026", semester: 5 },
-  { id: 10492, code: "T-514-VEFT", slug: "veft", name: "Vefþjónustur", term: "Haustönn 2026", semester: 5 },
-  { id: 10487, code: "T-488-MAPP", slug: "mapp", name: "Máltækni og forritun", term: "Haustönn 2026", semester: 5 },
-  { id: 10495, code: "T-603-THYD", slug: "thyd", name: "Þýðendur", term: "Haustönn 2026", semester: 5 },
+  { id: 1001, code: "T-503-POSH", slug: "posh", name: "Persónuvernd og öryggi", term: "Haustönn 2026", semester: 5 },
+  { id: 1002, code: "T-409-TSAM", slug: "tsam", name: "Tölvusamskipti", term: "Haustönn 2026", semester: 5 },
+  { id: 1003, code: "T-514-VEFT", slug: "veft", name: "Vefþjónustur", term: "Haustönn 2026", semester: 5 },
+  { id: 1004, code: "T-488-MAPP", slug: "mapp", name: "Máltækni og forritun", term: "Haustönn 2026", semester: 5 },
+  { id: 1005, code: "T-603-THYD", slug: "thyd", name: "Þýðendur", term: "Haustönn 2026", semester: 5 },
 ];
 
 const EXISTING_FOLDERS = ["POSH", "compilers", "tsam", "veft"];
@@ -85,8 +85,8 @@ describe("applyMapping", () => {
     expect(readFileSync(join(schoolRoot, "onn 5", "posh", "marker.txt"), "utf-8")).toBe("posh-marker");
 
     const mapping = JSON.parse(readFileSync(mappingPath, "utf-8")) as CourseMapping;
-    expect(mapping["10488"]).toEqual({ code: "T-503-POSH", slug: "posh", semester: 5 });
-    expect(mapping["10495"]).toEqual({ code: "T-603-THYD", slug: "thyd", semester: 5, folder: "compilers" });
+    expect(mapping["1001"]).toEqual({ code: "T-503-POSH", slug: "posh", semester: 5 });
+    expect(mapping["1005"]).toEqual({ code: "T-603-THYD", slug: "thyd", semester: 5, folder: "compilers" });
 
     expect(log.some((l) => l.includes("renamed"))).toBe(true);
     expect(log.some((l) => l.includes("created"))).toBe(true);
@@ -118,11 +118,11 @@ describe("applyMapping", () => {
     await applyMapping(proposal, { schoolRoot, mappingPath });
 
     const mapping = JSON.parse(readFileSync(mappingPath, "utf-8")) as CourseMapping;
-    expect(mapping["10495"]).toMatchObject({ slug: "thyd", folder: "compilers" }); // real rename
-    expect(mapping["10488"]).not.toHaveProperty("folder"); // posh: case-only rename (POSH -> posh)
-    expect(mapping["10483"]).not.toHaveProperty("folder"); // tsam: kept
-    expect(mapping["10492"]).not.toHaveProperty("folder"); // veft: kept
-    expect(mapping["10487"]).not.toHaveProperty("folder"); // mapp: created
+    expect(mapping["1005"]).toMatchObject({ slug: "thyd", folder: "compilers" }); // real rename
+    expect(mapping["1001"]).not.toHaveProperty("folder"); // posh: case-only rename (POSH -> posh)
+    expect(mapping["1002"]).not.toHaveProperty("folder"); // tsam: kept
+    expect(mapping["1003"]).not.toHaveProperty("folder"); // veft: kept
+    expect(mapping["1004"]).not.toHaveProperty("folder"); // mapp: created
   });
 
   it("preserves a recorded folder across a later apply where the entry is kept", async () => {
@@ -138,6 +138,6 @@ describe("applyMapping", () => {
     await applyMapping(secondProposal, { schoolRoot, mappingPath });
 
     const mapping = JSON.parse(readFileSync(mappingPath, "utf-8")) as CourseMapping;
-    expect(mapping["10495"]).toMatchObject({ slug: "thyd", folder: "compilers" });
+    expect(mapping["1005"]).toMatchObject({ slug: "thyd", folder: "compilers" });
   });
 });

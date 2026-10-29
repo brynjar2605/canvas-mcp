@@ -5,6 +5,10 @@
 export interface EnrollmentTerm {
   id: number;
   name: string;
+  /** ISO timestamp; null for "Default term". RU Haustönn YYYY = YYYY-08-01 → (YYYY+1)-01-15. */
+  start_at?: string | null;
+  /** ISO timestamp (exclusive end); null for "Default term". RU Vorönn YYYY = YYYY-01-01 → YYYY-06-30. */
+  end_at?: string | null;
 }
 
 export interface Grades {

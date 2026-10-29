@@ -15,6 +15,10 @@ export interface CourseInfo {
   term: string | null;
   /** Derived semester number (önn), 1-based from FIRST_TERM. null when not derivable. */
   semester: number | null;
+  /** Canvas term start (ISO), e.g. "2026-08-01T00:00:00Z". null for "Default term" / unknown. */
+  termStart: string | null;
+  /** Canvas term end (ISO, exclusive), e.g. "2027-01-15T00:00:00Z". null for "Default term" / unknown. */
+  termEnd: string | null;
 }
 
 /** Real RU courses look like T-603-THYD or X-204-STOF. Anything else is an announcement/video shell. */
@@ -57,7 +61,16 @@ export function toCourseInfo(c: Course): CourseInfo | null {
   const slug = slugFromCode(c.course_code);
   if (!slug) return null;
   const term = c.term?.name && c.term.name !== "Default term" ? c.term.name : null;
-  return { id: c.id, code: c.course_code, slug, name: c.name, term, semester: semesterFromTerm(term) };
+  return {
+    id: c.id,
+    code: c.course_code,
+    slug,
+    name: c.name,
+    term,
+    semester: semesterFromTerm(term),
+    termStart: c.term?.start_at ?? null,
+    termEnd: c.term?.end_at ?? null,
+  };
 }
 
 const COURSES_TTL_MS = 60 * 60 * 1000;
@@ -78,29 +91,74 @@ export async function listCourses(client: CanvasClient): Promise<CourseInfo[]> {
     .sort((a, b) => (b.semester ?? 0) - (a.semester ?? 0) || a.slug.localeCompare(b.slug));
 }
 
-/** Highest derived semester across all courses — the semester we are "in". */
-export function currentSemesterOf(courses: CourseInfo[]): number | null {
-  return courses.reduce<number | null>((max, c) => (c.semester !== null && (max === null || c.semester > max) ? c.semester : max), null);
+function parseTime(iso: string | null): number | null {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : t;
 }
 
-/** Courses of the current (highest) semester. */
-export async function currentCourses(client: CanvasClient): Promise<CourseInfo[]> {
+function maxSemester(courses: CourseInfo[]): number | null {
+  return courses.reduce<number | null>((m, c) => (c.semester !== null && (m === null || c.semester > m) ? c.semester : m), null);
+}
+
+/** "Today's term" by calendar alone: Haustönn for August–December, else Vorönn of that year. */
+function calendarTerm(now: Date): string {
+  return `${now.getUTCMonth() >= 7 ? "Haustönn" : "Vorönn"} ${now.getUTCFullYear()}`;
+}
+
+/**
+ * The semester (önn) we are "in" at `now`, decided by Canvas term dates:
+ *  1. if any course's term window contains `now` (start <= now < end), the highest such
+ *     semester — so during the Jan 1–15 overlap the new Vorönn wins over the finishing Haustönn;
+ *  2. else the highest semester whose term has already started (July → the Vorönn that just ended);
+ *  3. else (no usable dates, or only future terms) a calendar rule: today's term is Haustönn in
+ *     August–December, otherwise Vorönn; pick the highest semester <= that, or the lowest semester
+ *     if every course is in the future (a brand-new student).
+ * Courses enrolled for a future term therefore never displace the ongoing one. Returns null only
+ * when no course has a derivable semester. Pure; `now` is injectable for tests.
+ */
+export function currentSemesterOf(courses: CourseInfo[], now: Date = new Date()): number | null {
+  const candidates = courses.filter((c) => c.semester !== null);
+  if (candidates.length === 0) return null;
+  const t = now.getTime();
+
+  const ongoing = candidates.filter((c) => {
+    const start = parseTime(c.termStart);
+    const end = parseTime(c.termEnd);
+    return start !== null && end !== null && start <= t && t < end;
+  });
+  if (ongoing.length > 0) return maxSemester(ongoing);
+
+  const started = candidates.filter((c) => {
+    const start = parseTime(c.termStart);
+    return start !== null && start <= t;
+  });
+  if (started.length > 0) return maxSemester(started);
+
+  const today = semesterFromTerm(calendarTerm(now));
+  const notFuture = today === null ? [] : candidates.filter((c) => c.semester! <= today);
+  if (notFuture.length > 0) return maxSemester(notFuture);
+  return candidates.reduce((m, c) => Math.min(m, c.semester!), Infinity);
+}
+
+/** Courses of the current semester (see currentSemesterOf). */
+export async function currentCourses(client: CanvasClient, now: Date = new Date()): Promise<CourseInfo[]> {
   const all = await listCourses(client);
-  const sem = currentSemesterOf(all);
+  const sem = currentSemesterOf(all, now);
   return all.filter((c) => c.semester === sem);
 }
 
 export class CourseNotFoundError extends Error {
-  constructor(ref: string | number, available: CourseInfo[]) {
-    const currentSem = currentSemesterOf(available);
+  constructor(ref: string | number, available: CourseInfo[], now: Date = new Date()) {
+    const currentSem = currentSemesterOf(available, now);
     const current = available.filter((c) => c.semester === currentSem).map((c) => c.slug);
-    const hasOlder = available.some((c) => c.semester !== currentSem);
+    const hasOther = available.some((c) => c.semester !== currentSem);
     const currentPart =
       current.length > 0
         ? `Current courses: ${current.join(", ")}.`
         : `Available: ${available.map((c) => `${c.slug} (${c.id})`).join(", ")}.`;
-    const pastNote = hasOlder
-      ? " (Older semesters are also searchable by slug — run list_courses with include_past: true to see them.)"
+    const pastNote = hasOther
+      ? " (Other semesters are also searchable by slug — run list_courses with include_past: true to see them.)"
       : "";
     super(`No course matches "${ref}". ${currentPart}${pastNote}`);
     this.name = "CourseNotFoundError";

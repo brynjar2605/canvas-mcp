@@ -15,8 +15,9 @@ sync engine that mirrors course material into `~/Documents/Tolvunarfraedi/onn N/
 ## Constraints / decisions
 - TypeScript, Node ≥ 22, `@modelcontextprotocol/sdk`, stdio transport. ESM.
 - Token from `.env` (`CANVAS_TOKEN`, `CANVAS_BASE_URL`). Never logged, never committed.
-- `SCHOOL_ROOT` default `~/Documents/Tolvunarfraedi`. Semester folder `onn <N>` where N comes
-  from config (`CURRENT_SEMESTER=5`), not guessed.
+- `SCHOOL_ROOT` default `~/Documents/Tolvunarfraedi`. Semester folder `onn <N>` where N is derived
+  from each course's Canvas term name relative to `FIRST_TERM` (optional `CURRENT_SEMESTER` is only a
+  last-resort fallback when a course's term can't be derived), not guessed.
 - Pagination via `Link: rel="next"` on every list call, `per_page=100`.
 - Respect `X-Rate-Limit-Remaining`; back off below 50, retry on 403 rate-limit / 5xx.
 - In-memory cache with TTL (courses 1h, assignments 10m, files 10m) — server is short-lived per session.
@@ -96,8 +97,10 @@ Submissions, discussions posting, quizzes content, groups, background launchd sy
   `FIRST_TERM = "Haustönn 2024"` (env, default) = önn 1; each subsequent Vorönn/Haustönn increments. Haustönn 2026 = önn 5.
   Term comes from `include[]=term` on `/api/v1/courses`. "Default term" → no semester (exclude).
 - `enrollment_state=active` still returns a stale prior-term course (T-304-CACS, Haustönn 2025). "Current" courses =
-  those whose derived semester == max derived semester among active courses, not simply enrollment_state=active.
-- Semester 5 courses: 10488 T-503-POSH, 10483 T-409-TSAM, 10492 T-514-VEFT, 10487 T-488-MAPP, 10495 T-603-THYD.
+  those of the semester whose Canvas term window (`term.start_at` ≤ now < `term.end_at`) contains today — highest
+  such semester during the Jan 1–15 overlap; else the most recently started term (July); else a calendar fallback
+  (Aug–Dec = Haustönn) — not simply enrollment_state=active, and never a future term you're already enrolled in.
+- Semester 5 courses: T-503-POSH, T-409-TSAM, T-514-VEFT, T-488-MAPP, T-603-THYD.
 - Existing folders in `onn 5/`: `POSH`, `compilers`, `tsam`, `veft`. Desired: `posh`, `thyd`, `tsam`, `veft`, `mapp`.
   `POSH`→`posh` is a CASE-ONLY rename on a case-insensitive filesystem (APFS default): must rename via a temp name
   (`POSH` → `posh.__tmp` → `posh`). `compilers`→`thyd` cannot be matched by string similarity — mapping proposal

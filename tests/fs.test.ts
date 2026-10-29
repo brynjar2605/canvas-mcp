@@ -62,7 +62,7 @@ describe("sanitizeFilename", () => {
 
 describe("safeFilename", () => {
   it("falls back when the name is empty", () => {
-    expect(safeFilename("", "file-2571780")).toBe("file-2571780");
+    expect(safeFilename("", "file-8001")).toBe("file-8001");
   });
 
   it("falls back for '.' and '..'", () => {

@@ -42,7 +42,7 @@ export const tool = defineTool({
       .number()
       .int()
       .optional()
-      .describe("Semester (önn) number; defaults to the current (highest-derived) semester"),
+      .describe("Semester (önn) number; defaults to the current semester (the term in progress today, by Canvas term dates)"),
     overrides: z
       .record(z.string(), z.string())
       .optional()

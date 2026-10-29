@@ -149,7 +149,7 @@ async function listViaListing(client: CanvasClient, courseId: number): Promise<F
  * from a bare course id — `discoverFileIds` doesn't have (and doesn't need) the real course
  * record; only `id` is inspected when mapping `context_code` back to a course. */
 function courseInfoStub(courseId: number): CourseInfo {
-  return { id: courseId, code: "", slug: "", name: "", term: null, semester: null };
+  return { id: courseId, code: "", slug: "", name: "", term: null, semester: null, termStart: null, termEnd: null };
 }
 
 /**

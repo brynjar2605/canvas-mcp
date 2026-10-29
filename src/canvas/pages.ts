@@ -1,7 +1,7 @@
 import type { CanvasClient } from "./client.js";
 import { CanvasApiError } from "./client.js";
 import type { Page } from "./types.js";
-import { htmlToMarkdown } from "../util/html.js";
+import { htmlToMarkdown, stripVerifierParams } from "../util/html.js";
 
 export interface PageSummary {
   url: string;
@@ -77,7 +77,7 @@ export async function getPage(
       title: p.title,
       url: p.url,
       bodyHtml: p.body ?? "",
-      bodyMarkdown: htmlToMarkdown(p.body),
+      bodyMarkdown: stripVerifierParams(htmlToMarkdown(p.body)),
       updatedAt: p.updated_at ?? null,
     };
   } catch (err) {

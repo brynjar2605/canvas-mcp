@@ -57,6 +57,19 @@ describe("getPage", () => {
     expect(page.updatedAt).toBe("2026-01-01T00:00:00Z");
   });
 
+  it("strips Canvas verifier params from file links in the markdown body", async () => {
+    const raw = {
+      url: "week-1",
+      title: "Week 1",
+      body: '<p><a href="https://x.test/files/42/download?verifier=secret123&amp;wrap=1">Slides.pdf</a></p>',
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    const page = await getPage(clientRespondingWith(200, raw), 1, "week-1");
+    expect(page.bodyMarkdown).toContain("https://x.test/files/42/download?wrap=1");
+    expect(page.bodyMarkdown).not.toContain("verifier");
+    expect(page.bodyMarkdown).not.toContain("secret123");
+  });
+
   it("throws a clear error when the page is missing / Pages is disabled (404)", async () => {
     const client = clientRespondingWith(404, "not found");
     await expect(getPage(client, 1, "nope")).rejects.toThrow(/not found/i);

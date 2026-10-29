@@ -11,7 +11,7 @@ function jsonResponse(data: unknown): Response {
 }
 
 const COURSES = [
-  { id: 10495, course_code: "T-603-THYD", name: "Þýðendur", term: { name: "Haustönn 2026" }, workflow_state: "available" },
+  { id: 1005, course_code: "T-603-THYD", name: "Þýðendur", term: { name: "Haustönn 2026" }, workflow_state: "available" },
 ];
 
 describe("apply_course_mapping tool", () => {

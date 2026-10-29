@@ -81,17 +81,17 @@ describe("get_assignment tool", () => {
       points_possible: null,
       html_url: "https://x.test/42",
       description:
-        '<p>See <a href="https://x.test/files/2712565/download?verifier=abc123&amp;wrap=1">THYD_LabExercise_03.pdf</a>.</p>',
+        '<p>See <a href="https://x.test/files/7101/download?verifier=abc123&amp;wrap=1">THYD_LabExercise_03.pdf</a>.</p>',
     };
     const result = await tool.handler({ course: "thyd", assignment_id: 42 }, { client: clientFor(assignment), config: fakeConfig() });
 
     expect(result).not.toContain("verifier");
     // Description keeps its markdown link (verifier stripped; turndown escapes the underscores) ...
-    expect(result).toContain("(https://x.test/files/2712565/download?wrap=1)");
+    expect(result).toContain("(https://x.test/files/7101/download?wrap=1)");
     // ... and the Attachments section names the file + file_id without repeating the url.
-    expect(result).toContain("- THYD_LabExercise_03.pdf — file_id 2712565");
-    expect(result).not.toContain("(https://x.test/files/2712565/download?wrap=1) (file_id");
+    expect(result).toContain("- THYD_LabExercise_03.pdf — file_id 7101");
+    expect(result).not.toContain("(https://x.test/files/7101/download?wrap=1) (file_id");
     const attachmentsSection = result.slice(result.indexOf("## Attachments"));
-    expect(attachmentsSection.match(/2712565/g)).toHaveLength(1);
+    expect(attachmentsSection.match(/7101/g)).toHaveLength(1);
   });
 });

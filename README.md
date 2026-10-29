@@ -33,8 +33,8 @@ Edit `.env`:
 CANVAS_BASE_URL=https://reykjavik.instructure.com
 CANVAS_TOKEN=paste-your-token-here
 SCHOOL_ROOT=/Users/you/Documents/Tolvunarfraedi
-CURRENT_SEMESTER=5
 FIRST_TERM=Haustönn 2024
+# CURRENT_SEMESTER=5   # optional, last-resort fallback only
 ```
 
 - `CANVAS_TOKEN` — the token from step 1. Never commit this file; `.env` is gitignored.
@@ -44,10 +44,11 @@ FIRST_TERM=Haustönn 2024
   sync destinations) is counted from this term, two terms per year, 1-based — so `Haustönn 2024` is
   önn 1, `Vorönn 2025` is önn 2, and so on. Defaults to `Haustönn 2024` if unset. If courses are
   landing in the wrong `onn <N>` folder, this is almost always why.
-- `CURRENT_SEMESTER` — still required to start the server today, but only actually *used* as a
-  last-resort fallback (in `search_materials`, when a course's semester can't be derived from its
-  Canvas term at all). Most setups never hit that fallback, since `FIRST_TERM` derives every
-  current course's semester automatically — any integer value works if you're unsure.
+- `CURRENT_SEMESTER` — optional; leave it unset unless you need it. It is only a last-resort
+  fallback (in `search_materials`, when a course's semester can't be derived from its Canvas term
+  at all). It does not decide which semester is "current": that comes from Canvas term dates — the
+  term in progress today (the newer one during the Jan 1–15 overlap), else the most recently
+  started term, else Aug–Dec = Haustönn / Jan–Jul = Vorönn by the calendar.
 
 ### 3. Install and build
 
@@ -108,7 +109,7 @@ claude mcp add canvas -- node /absolute/path/to/canvas-mcp/dist/index.js
 
 | Tool | Description |
 |---|---|
-| `list_courses` | Lists your courses (id, code, slug, name, term, önn); current semester by default. |
+| `list_courses` | Lists your courses (id, code, slug, name, term, önn); current semester (the term in progress today) by default, with an "Upcoming" footer naming courses you're already enrolled in for a later semester. |
 | `list_assignments` | Assignments for one course (or all current courses): due date, points, submitted/graded state, score, and the id `get_assignment` needs. Filterable by upcoming / past / missing / graded / all. No lectures or calendar events — use `get_upcoming` for those. |
 | `get_assignment` | Full assignment detail: description as markdown, rubric, attachments (with file ids), submission state. |
 | `get_upcoming` | Timeline for the next N days across all current courses (or one, via `course`): deadlines first each day, then a compact lectures/dæmatímar line per event. Not a substitute for `list_assignments` when you need scores or full descriptions. |
@@ -151,7 +152,7 @@ through an LLM client:
 
 ```sh
 npx canvas-mcp courses                          # same as list_courses
-npx canvas-mcp courses --include-past           # include past semesters too
+npx canvas-mcp courses --include-past           # include past and upcoming semesters too
 
 npx canvas-mcp mapping                          # same as propose_course_mapping
 npx canvas-mcp mapping --semester 5             # propose for a specific önn
@@ -187,8 +188,10 @@ fails with a clear message instead of silently doing the wrong thing.
   failures, wait a few minutes — Canvas's per-account rate limit resets over time.
 - **A course is missing from `list_courses`** — only courses whose `course_code` matches
   `X-NNN-CODE` (e.g. `T-603-THYD`) are treated as real courses; announcement/video shell "courses"
-  are filtered out. Only the current (highest-derived) semester is shown by default — pass
-  `include_past: true` to see older ones.
+  are filtered out. Only the current semester — the one whose Canvas term dates contain today, not
+  the highest one you're enrolled in — is shown by default. Courses for a later semester are named
+  in an `Upcoming (…)` footer under the table; pass `include_past: true` to see every semester,
+  past and upcoming.
 - **Sync didn't remove a file that was deleted on Canvas** — this is intentional; sync never
   deletes local files. Run `sync_course` again (even with `dry_run: true`) for a
   "removed-on-canvas" list of files present locally but no longer on Canvas, and remove them

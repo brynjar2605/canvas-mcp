@@ -165,27 +165,27 @@ describe("course mapping (config/courses.json)", () => {
 
   it("round-trips an entry that carries a folder alias", () => {
     const mapping: CourseMapping = {
-      "10495": { code: "T-603-THYD", slug: "thyd", semester: 5, folder: "compilers" },
+      "1005": { code: "T-603-THYD", slug: "thyd", semester: 5, folder: "compilers" },
     };
 
     saveCourseMapping(mapping, mappingPath);
     const loaded = loadCourseMapping(mappingPath);
 
     expect(loaded).toEqual(mapping);
-    expect(loaded["10495"]!.folder).toBe("compilers");
+    expect(loaded["1005"]!.folder).toBe("compilers");
   });
 
   it("loads legacy entries that predate the folder field", async () => {
     await mkdir(join(tmpDir, "config"), { recursive: true });
     await writeFile(
       mappingPath,
-      JSON.stringify({ "10488": { code: "T-503-POSH", slug: "posh", semester: 5 } }),
+      JSON.stringify({ "1001": { code: "T-503-POSH", slug: "posh", semester: 5 } }),
       "utf-8"
     );
 
     const loaded = loadCourseMapping(mappingPath);
 
-    expect(loaded["10488"]).toEqual({ code: "T-503-POSH", slug: "posh", semester: 5 });
-    expect(loaded["10488"]!.folder).toBeUndefined();
+    expect(loaded["1001"]).toEqual({ code: "T-503-POSH", slug: "posh", semester: 5 });
+    expect(loaded["1001"]!.folder).toBeUndefined();
   });
 });
